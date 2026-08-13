@@ -33,3 +33,64 @@ Read previous RSNA News stories on AI Challenge winners:
 - Intracranial Aneurysm Detection AI Challenge Results Announced
 - RSNA Announces Lumbar Spine Degenerative Classification AI Challenge Results
 - RSNA Announces Abdominal Trauma Detection AI Challenge Results
+
+## Win-Focused Execution Scaffold
+
+This repository now includes a lightweight Python scaffold under:
+
+- `/home/runner/work/RSNA-Launches-Knee-Abnormality-Detection-AI-Challenge/RSNA-Launches-Knee-Abnormality-Detection-AI-Challenge/src/rsna_knee`
+- `/home/runner/work/RSNA-Launches-Knee-Abnormality-Detection-AI-Challenge/RSNA-Launches-Knee-Abnormality-Detection-AI-Challenge/tests`
+
+It is designed to accelerate the first-prize workflow with reproducible building blocks:
+
+- deterministic patient/site/language-aware CV split generation (`build-splits`)
+- strict patient leakage validation
+- macro-AUC + per-label AUC scoring for the 12 competition targets (`score-oof`)
+- standardized Kaggle submission file assembly (`make-submission`)
+- experiment tracker logging (`run_id`, split, model, macro AUC, public LB, train time, cost)
+
+### Quickstart
+
+Run all tests:
+
+```bash
+cd /home/runner/work/RSNA-Launches-Knee-Abnormality-Detection-AI-Challenge/RSNA-Launches-Knee-Abnormality-Detection-AI-Challenge
+python -m unittest discover -s tests -p "test_*.py"
+```
+
+Create CV splits:
+
+```bash
+cd /home/runner/work/RSNA-Launches-Knee-Abnormality-Detection-AI-Challenge/RSNA-Launches-Knee-Abnormality-Detection-AI-Challenge
+PYTHONPATH=src python -m rsna_knee.cli build-splits \
+  --train-csv data/train.csv \
+  --output-csv artifacts/splits/folds.csv \
+  --n-folds 5 \
+  --seed 2026
+```
+
+Score OOF predictions and log run metrics:
+
+```bash
+cd /home/runner/work/RSNA-Launches-Knee-Abnormality-Detection-AI-Challenge/RSNA-Launches-Knee-Abnormality-Detection-AI-Challenge
+PYTHONPATH=src python -m rsna_knee.cli score-oof \
+  --oof-csv artifacts/oof/model_oof.csv \
+  --tracker-csv artifacts/experiments/tracker.csv \
+  --run-id baseline_img_text_v1 \
+  --split-name cv5_patient_site_lang \
+  --model-name multimodal_baseline
+```
+
+Build Kaggle submission:
+
+```bash
+cd /home/runner/work/RSNA-Launches-Knee-Abnormality-Detection-AI-Challenge/RSNA-Launches-Knee-Abnormality-Detection-AI-Challenge
+PYTHONPATH=src python -m rsna_knee.cli make-submission \
+  --ids-csv data/test_ids.csv \
+  --preds-csv artifacts/preds/test_preds.csv \
+  --output-csv submissions/submission.csv
+```
+
+### Competition target columns
+
+`StudyInstanceUID,ACL,MCL,Medial Meniscus,Lateral Meniscus,Medial OA,Lateral OA,PF OA,Effusion,Synovitis,Baker's,Contusion,Fracture`
