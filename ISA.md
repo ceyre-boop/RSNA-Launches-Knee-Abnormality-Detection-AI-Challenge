@@ -209,6 +209,21 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
 - 2026-08-13: BLOCKED on ANTHROPIC_API_KEY for LLM extraction (gold-58 smoke ~$0.15,
   full batch ~$5). Add `ANTHROPIC_API_KEY=sk-ant-...` to the repo `.env`, then:
   `set -a; source .env; set +a; uv run python -m rsna_knee.cli extract-labels --engine llm --only-gold --yes`
+- 2026-08-13 (late): **Sonnet extraction via Claude Code subagents** (Max subscription,
+  no API key — TABOOST preference; also: never Haiku, Sonnet/Opus only). Gold-29
+  head-to-head: Sonnet 0.8123 vs rules 0.7210 macro AUC. Full-corpus run PAUSED by
+  TABOOST at 11/44 chunks (1,089/4,349 studies done, all validated clean). Resume
+  state: scratchpad extraction_ledger.json (pending: 33 chunks); durable copies in
+  data/sonnet_results/ + data/pseudo_labels_sonnet_partial.csv.
+- 2026-08-13: **Leaderboard intel** (efficiency-LB notebook CSV): top 0.944, top-10
+  cutoff 0.934, median 0.832, 450 teams at 0.85-0.90. Competitor salemali7 (0.899)
+  analyzed — same reports-as-supervision strategy, DINOv2 2.5D 6-slot ensemble; full
+  intel + adopt/exploit list in intel/competitor-salemali7.md. Key adoptions queued:
+  geometric slice ordering (filename order is RANDOM), 130mm crop, laterality
+  normalization, rank-averaged ensembling, confidence-weighted BCE with gold override.
+- 2026-08-13: Gold-58 chunk-0 Sonnet worker was killed mid-pause; only 29/58 gold
+  studies have Sonnet labels (pseudo_gold_sonnet_29.csv). Re-run gold chunk 0 first on
+  resume to complete the engine comparison.
 - 2026-08-13: BLOCKED on principal for: (a) Kaggle API token at `~/.kaggle/kaggle.json`,
   (b) accepting competition rules on the Kaggle website (cannot be done via CLI).
 

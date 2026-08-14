@@ -6,3 +6,7 @@ artifacts/
 uv.lock
 .env
 data/
+!data/pseudo_labels_sonnet_partial.csv
+!data/pseudo_gold_sonnet_29.csv
+!data/sonnet_results/
+!data/sonnet_results/**

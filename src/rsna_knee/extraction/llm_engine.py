@@ -7,11 +7,11 @@ from typing import Dict, Iterable, List, Optional
 from ..constants import TARGET_LABELS
 from .types import STATUSES, ExtractionResult, LabelEvidence, score_for
 
-MODEL = "claude-haiku-4-5"
+MODEL = "claude-sonnet-5"
 PROMPT_VERSION = "v1"
-# Haiku 4.5 pricing per MTok
-_INPUT_COST_PER_MTOK = 1.00
-_OUTPUT_COST_PER_MTOK = 5.00
+# Sonnet 5 pricing per MTok (intro pricing through 2026-08-31: $2/$10)
+_INPUT_COST_PER_MTOK = 2.00
+_OUTPUT_COST_PER_MTOK = 10.00
 _BATCH_DISCOUNT = 0.5
 
 SYSTEM_PROMPT = """\
