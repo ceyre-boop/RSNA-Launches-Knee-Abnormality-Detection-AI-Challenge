@@ -201,6 +201,14 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
   pydicom/supervision/opencv-headless/kaggle), 4/4 tests pass, kaggle CLI installed.
 - 2026-08-13: progress frontmatter counts 54 ISCs; 6 partially advanced (env, CLI,
   repo) — none marked [x] until their full probe passes.
+- 2026-08-13 (night): Report extractor shipped (Rules v0 + LLM v1 per approved plan,
+  Plans/greedy-shimmying-mochi.md). Rules-v0 gold-58 baseline: **0.7107 macro AUC**
+  (MCL 0.90, ACL 0.87, menisci 0.82-0.86; weak: Medial/Lateral OA 0.52-0.54,
+  Effusion/Synovitis 0.58-0.59 — multilingual nuance gap the LLM engine targets).
+  28/28 tests green. Tracker row `rules-v0-gold58` in runs.csv.
+- 2026-08-13: BLOCKED on ANTHROPIC_API_KEY for LLM extraction (gold-58 smoke ~$0.15,
+  full batch ~$5). Add `ANTHROPIC_API_KEY=sk-ant-...` to the repo `.env`, then:
+  `set -a; source .env; set +a; uv run python -m rsna_knee.cli extract-labels --engine llm --only-gold --yes`
 - 2026-08-13: BLOCKED on principal for: (a) Kaggle API token at `~/.kaggle/kaggle.json`,
   (b) accepting competition rules on the Kaggle website (cannot be done via CLI).
 
