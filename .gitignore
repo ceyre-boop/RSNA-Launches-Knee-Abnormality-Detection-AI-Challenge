@@ -10,3 +10,4 @@ data/
 !data/pseudo_gold_sonnet_29.csv
 !data/sonnet_results/
 !data/sonnet_results/**
+!data/splits_reporthash_5fold.csv
