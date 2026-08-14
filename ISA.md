@@ -3,7 +3,7 @@ project: rsna-knee-2026
 task: Win the RSNA Knee Abnormality Detection AI Challenge (solo)
 effort: E4
 phase: observe
-progress: 0/64
+progress: 0/54
 mode: standard
 started: 2026-08-13T20:45:00-07:00
 updated: 2026-08-13T20:45:00-07:00
@@ -138,6 +138,13 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
 - [ ] ISC-46: Anti: no experiment run without a pre-registered hypothesis and success threshold in the tracker
 - [ ] ISC-47: Kaggle GPU quota usage tracked weekly; cloud-spend decision gated on a specific starved experiment
 
+### Advisor-derived hardening (added 2026-08-13)
+- [ ] ISC-50: Week-1 always-green inference skeleton: Kaggle notebook loads hidden-test layout, runs dummy model, emits valid submission.csv in <1 h — kept green all competition
+- [ ] ISC-51: DICOM decode throughput measured (incl. JPEG2000/JPEG-LS cases); decode is not the inference bottleneck at final ensemble scale
+- [ ] ISC-52: Ensembling uses rank-averaging; rank-avg vs prob-avg ablated on OOF
+- [ ] ISC-53: Public knee-MRI pretraining (MRNet et al.) evaluated; kept if OOF gain ≥0.005 and license is redistributable
+- [ ] ISC-54: ROI-crop QC visualizations (supervision-annotated boxes on slices) reviewed for 20 studies before cache build
+
 ### Winners' obligations readiness
 - [ ] ISC-48: Training code reproducible end-to-end from README instructions on clean machine
 - [ ] ISC-49: License audit: all pretrained weights used are redistributable (no non-commercial-only blockers for open-sourcing)
@@ -183,6 +190,17 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
   fabricate probes for unknowns (exact data schema unseen).
 - 2026-08-13: Compute strategy — Kaggle GPU quota first; rent A100s only when a named
   experiment is quota-starved (ISC-47 gate).
+- 2026-08-13: Advisor review adopted: series-type classification and physical-spacing
+  resample prioritized over text distillation (downgraded from pillar to evaluated bet,
+  ISC-32 threshold stands); rank-average ensembling (ISC-52); week-1 inference skeleton
+  (ISC-50); final week is freeze buffer — no new experiments after 2026-10-15.
+- 2026-08-13: Principal directed adding `supervision` (Roboflow) — adopted for ROI
+  localization QC/annotation on slices (ISC-54), not core 3D classification (it is a 2D
+  detection/tracking toolkit). Boundary named per Backbone rule; wired into pyproject.
+- 2026-08-13: Environment initialized: uv-managed pyproject (numpy/pandas/sklearn/
+  pydicom/supervision/opencv-headless/kaggle), 4/4 tests pass, kaggle CLI installed.
+- 2026-08-13: progress frontmatter counts 54 ISCs; 6 partially advanced (env, CLI,
+  repo) — none marked [x] until their full probe passes.
 - 2026-08-13: BLOCKED on principal for: (a) Kaggle API token at `~/.kaggle/kaggle.json`,
   (b) accepting competition rules on the Kaggle website (cannot be done via CLI).
 
