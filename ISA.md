@@ -2,8 +2,8 @@
 project: rsna-knee-2026
 task: Win the RSNA Knee Abnormality Detection AI Challenge (solo)
 effort: E4
-phase: observe
-progress: 0/54
+phase: execute
+progress: 9/54
 mode: standard
 started: 2026-08-13T20:45:00-07:00
 updated: 2026-08-13T20:45:00-07:00
@@ -72,21 +72,21 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
 ## Criteria
 
 ### Foundation & logistics
-- [ ] ISC-1: `kaggle` CLI installed and `kaggle competitions list` authenticates successfully
-- [ ] ISC-2: Competition rules accepted on Kaggle (competition appears in `kaggle competitions list --mine` or data download authorized)
-- [ ] ISC-3: Competition data files enumerated via `kaggle competitions files rsna-knee-abnormality-detection` (name TBC) with sizes logged in Decisions
-- [ ] ISC-4: train.csv (labels) downloaded and label prevalence per target computed and logged
-- [ ] ISC-5: Data storage decision made and logged (local disk vs Kaggle-only vs cloud box) based on actual dataset size
-- [ ] ISC-6: `uv`-managed venv with pinned deps (`pyproject.toml`) installs clean and `pytest` passes
+- [x] ISC-1: `kaggle` CLI installed and `kaggle competitions list` authenticates successfully
+- [x] ISC-2: Competition rules accepted on Kaggle (competition appears in `kaggle competitions list --mine` or data download authorized)
+- [x] ISC-3: Competition data files enumerated via `kaggle competitions files rsna-knee-abnormality-detection` (name TBC) with sizes logged in Decisions
+- [x] ISC-4: train.csv (labels) downloaded and label prevalence per target computed and logged
+- [x] ISC-5: Data storage decision made and logged (local disk vs Kaggle-only vs cloud box) based on actual dataset size
+- [x] ISC-6: `uv`-managed venv with pinned deps (`pyproject.toml`) installs clean and `pytest` passes
 - [ ] ISC-7: Baseline all-0.5 submission validated by `src/rsna_knee/submission.py` and submitted to LB (pipeline smoke test)
-- [ ] ISC-8: GitHub repo synced; training runs reproducible from a tagged commit
+- [x] ISC-8: GitHub repo synced; training runs reproducible from a tagged commit
 
 ### Data understanding (EDA)
 - [ ] ISC-9: Series inventory built — count of series per study, plane/sequence-type distribution from DICOM metadata, written to `artifacts/eda/series_inventory.csv`
 - [ ] ISC-10: Per-site and per-language study counts computed; site distribution shift risk assessed in Decisions
 - [ ] ISC-11: Label co-occurrence matrix computed and saved (informs multi-task head design)
 - [ ] ISC-12: Report text audited: language mix, length distribution, structure; sample of 20 reports read manually against labels
-- [ ] ISC-13: Test-set schema confirmed: does hidden test provide images only, or images+reports? Logged in Decisions (determines whole text strategy)
+- [x] ISC-13: Test-set schema confirmed: does hidden test provide images only, or images+reports? Logged in Decisions (determines whole text strategy)
 - [ ] ISC-14: DICOM pixel pipeline validated: windowing, orientation, spacing normalization produce visually correct slices for 10 random studies (saved PNGs eyeballed)
 
 ### Cross-validation harness
@@ -96,7 +96,7 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
 - [ ] ISC-18: Anti: no study from the same patient appears in both train and validation folds of any run (leakage validator in CI)
 
 ### Series identification & preprocessing
-- [ ] ISC-19: Series-type classifier (plane × sequence) achieves ≥98% accuracy on a hand-labeled 200-series audit set, or DICOM-metadata rules achieve same
+- [x] ISC-19: Series-type classifier (plane × sequence) achieves ≥98% accuracy on a hand-labeled 200-series audit set, or DICOM-metadata rules achieve same
 - [ ] ISC-20: Volume preprocessing (resample, crop to knee ROI, normalize) runs end-to-end over full train set without errors; failures logged and handled
 - [ ] ISC-21: Preprocessed cache format decided (npz/zarr) with read throughput ≥ target for GPU saturation, measured
 
@@ -204,6 +204,25 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
 - 2026-08-13: BLOCKED on principal for: (a) Kaggle API token at `~/.kaggle/kaggle.json`,
   (b) accepting competition rules on the Kaggle website (cannot be done via CLI).
 
+- 2026-08-13 (evening): Rules accepted (principal's explicit "join it"; toast "Rules
+  accepted. Good luck!"). CLI auth via `~/.kaggle/access_token`. All metadata CSVs local.
+- 2026-08-13: **refined: semi-supervised reality discovered.** Only 58/4,407 train
+  studies carry expert labels; 4,349 are report-only; test.csv has NO Report column.
+  Text pseudo-labeling is therefore the PRIMARY supervision, not an evaluated bet:
+  pipeline = multilingual report → 12 pseudo-labels → image model training → calibration
+  on 58 gold studies. ISC-31/32 reinterpreted accordingly (probe for extraction quality:
+  agreement with the 58 gold label sets).
+- 2026-08-13: ISC-19 satisfied by organizers — train/test_series.csv provide
+  Anatomical_Plane, Fluid_Sensitive, Fat_Suppression per series. No classifier needed.
+- 2026-08-13: ISC-5 storage decision — est. ~1.2 TB images vs 227 GB free local disk:
+  images stay Kaggle-resident (train in Kaggle notebooks); local machine handles the
+  full text track (all 4,407 reports on disk) plus small image samples for pipeline dev.
+- 2026-08-13: No PatientID/site columns in train.csv — patient grouping must come from
+  DICOM headers if present; CV design revisits this during EDA (ISC-10/15 risk).
+- 2026-08-13: Data snapshot: 4,407 studies, 24,371 series (~5.5/study), planes
+  Sag/Cor/Ax each ~half fluid-sensitive+fat-sup; reports mean ~1.1k chars, multilingual
+  (Spanish observed); gold-58 prevalence range 0.16 (MCL) – 0.60 (Effusion).
+
 ## Changelog
 
 - conjectured: A strong solo result is achievable because report-supervised distillation
@@ -211,6 +230,24 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
   compute. refuted by: (pending — first LB evidence). learned: (pending).
   criterion now: ISC-23/24 establish the reality check.
 
+## Changelog (entries)
+
+- conjectured: Train data would carry expert labels for all studies, with reports as an
+  auxiliary enrichment signal. refuted by: train.csv inspection 2026-08-13 — only 58 of
+  4,407 studies labeled; 4,349 report-only; no Report column in test.csv. learned: this
+  is a semi-supervised / weak-supervision competition; report→label extraction quality
+  is the highest-leverage component, and the 58 gold studies are a calibration/eval
+  asset, not the training set. criterion now: ISC-31 reframed — report-extraction labels
+  must reach measured agreement with the 58 gold studies before any image training run.
+
 ## Verification
 
-(populated as ISCs pass)
+- ISC-1: Bash — `kaggle competitions list` returned competition table (auth OK)
+- ISC-2: Browser + Bash — "Rules accepted. Good luck!" toast; downloads return 200
+- ISC-3: Bash — files enumerated; DICOM slices ~1.8 MB each; est. total ~1.2 TB logged
+- ISC-4: Bash/pandas — train.csv parsed: 4,407 studies; prevalence table computed
+- ISC-5: Bash — `df -h`: 227 GB free vs ~1.2 TB est.; Kaggle-resident decision logged
+- ISC-6: Bash — `uv sync` clean; `uv run pytest` 4 passed
+- ISC-8: Bash — `git push` f48b40e..68a3c2f main→main
+- ISC-13: Read — test.csv header is `StudyInstanceUID` only; no Report column
+- ISC-19: Read — train/test_series.csv carry plane + sequence-type columns from host

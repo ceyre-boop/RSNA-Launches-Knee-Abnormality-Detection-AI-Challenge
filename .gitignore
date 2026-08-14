@@ -5,3 +5,4 @@ data/
 artifacts/
 uv.lock
 .env
+data/
