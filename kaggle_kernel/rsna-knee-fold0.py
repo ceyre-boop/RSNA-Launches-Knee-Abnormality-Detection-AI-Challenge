@@ -5,9 +5,12 @@
 import subprocess, sys, os, json, glob, collections
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "timm"], check=True)
 
-ASSETS = "/kaggle/input/rsna-knee-taboost-assets"
-# Resolve competition mount defensively: find the dir containing train_series.csv
 import pathlib
+_hits = list(pathlib.Path("/kaggle/input").rglob("pseudo_labels_sonnet_v1_1.csv"))
+assert _hits, "assets dataset not found under /kaggle/input"
+ASSETS = str(_hits[0].parent)
+print("ASSETS resolved to:", ASSETS)
+# Resolve competition mount defensively: find the dir containing train_series.csv
 print("INPUT DIRS:", os.listdir("/kaggle/input"))
 COMP = None
 for d in pathlib.Path("/kaggle/input").iterdir():
