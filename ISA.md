@@ -224,6 +224,23 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
 - 2026-08-13: Gold-58 chunk-0 Sonnet worker was killed mid-pause; only 29/58 gold
   studies have Sonnet labels (pseudo_gold_sonnet_29.csv). Re-run gold chunk 0 first on
   resume to complete the engine comparison.
+- 2026-08-15: **Gold-58 is pathology-enriched, not a random sample.** Positive-rate
+  shift vs corpus: Fracture +0.26 (31% gold vs 5% corpus), Synovitis +0.35, Contusion
+  +0.19, ACL/Lat-Meniscus +0.17. Organizers picked interesting cases for annotation.
+  Consequences: (a) gold-58 AUC remains valid for RANKING extractors but overstates
+  rare-label prevalence; (b) fold-0 validation on pseudo-labels will not match LB
+  distribution — treat first LB submission as the real calibration point.
+- 2026-08-15: **CV grouping honesty note (re ISC-15/18):** splits group on report-text
+  hash (dupe-leak guard), NOT PatientID — PatientID is not in train.csv and DICOM
+  headers are Kaggle-resident. ACTION on first Kaggle session: dump PatientID from
+  train DICOM headers; if any patient has >1 study, regroup splits on PatientID.
+  Until then ISC-18 is NOT satisfied.
+- 2026-08-15: Effusion/Synovitis 20-case audit queued to run during first GPU job
+  (reading task, no contention). Purpose: calibrate per-label confidence weights, or
+  catch a "trace fluid" threshold artifact on the most-prevalent label.
+- 2026-08-15: Submission cadence: multiple submissions/day allowed (typically 5); only
+  2 selected finals count. Submit early and often for CV<->LB correlation (ISC-17);
+  never select finals by public LB (ISC-38 stands).
 - 2026-08-13: BLOCKED on principal for: (a) Kaggle API token at `~/.kaggle/kaggle.json`,
   (b) accepting competition rules on the Kaggle website (cannot be done via CLI).
 
