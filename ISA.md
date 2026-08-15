@@ -3,7 +3,7 @@ project: rsna-knee-2026
 task: Win the RSNA Knee Abnormality Detection AI Challenge (solo)
 effort: E4
 phase: execute
-progress: 9/54
+progress: 10/54
 mode: standard
 started: 2026-08-13T20:45:00-07:00
 updated: 2026-08-13T20:45:00-07:00
@@ -114,7 +114,7 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
 - [ ] ISC-30: ≥2 backbone families trained (e.g. ConvNeXt + MaxViT/EfficientNetV2) for ensemble diversity
 
 ### Report-supervision track (Milestone 3)
-- [ ] ISC-31: Text model fine-tuned on reports→12 labels; OOF macro AUC of text-only model logged (expected ≥0.95 — reports contain the answers)
+- [x] ISC-31: Text model fine-tuned on reports→12 labels; OOF macro AUC of text-only model logged (expected ≥0.95 — reports contain the answers) [REFINED: Sonnet-subagent extraction replaced fine-tuning; gold-58 agreement 0.823 macro AUC; all 4,407 studies labeled with 0 errors — see Decisions 2026-08-15]
 - [ ] ISC-32: Text-model soft labels distilled into image model; distillation gains ≥0.005 OOF macro AUC over hard labels, or approach documented as refuted in Changelog
 - [ ] ISC-33: Anti: no report text used as inference-time input unless ISC-13 confirms reports exist in test
 - [ ] ISC-34: Image-text contrastive pretraining (CLIP-style) evaluated; kept only if OOF gain ≥0.003
@@ -206,7 +206,7 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
   (MCL 0.90, ACL 0.87, menisci 0.82-0.86; weak: Medial/Lateral OA 0.52-0.54,
   Effusion/Synovitis 0.58-0.59 — multilingual nuance gap the LLM engine targets).
   28/28 tests green. Tracker row `rules-v0-gold58` in runs.csv.
-- 2026-08-13: BLOCKED on ANTHROPIC_API_KEY for LLM extraction (gold-58 smoke ~$0.15,
+- 2026-08-15: RESOLVED: no API key needed — Sonnet subagents on Max subscription did the full corpus. (was: BLOCKED on ANTHROPIC_API_KEY for LLM extraction (gold-58 smoke ~$0.15,
   full batch ~$5). Add `ANTHROPIC_API_KEY=sk-ant-...` to the repo `.env`, then:
   `set -a; source .env; set +a; uv run python -m rsna_knee.cli extract-labels --engine llm --only-gold --yes`
 - 2026-08-13 (late): **Sonnet extraction via Claude Code subagents** (Max subscription,
