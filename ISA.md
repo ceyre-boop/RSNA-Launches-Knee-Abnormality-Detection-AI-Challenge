@@ -248,6 +248,15 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
 - 2026-08-15: Synovitis ceiling note: audit showed reports are structurally silent on
   synovium (5/8 annotator-vs-report) — label partly unlearnable from report-derived
   supervision; do NOT spend late-competition effort rescuing it beyond the 0.43 weight.
+- 2026-08-15: **v1.2 labels** — second audit (PF OA/MedMen, 21 cases): 13 threshold
+  artifacts, 0 extraction errors. Deterministic severity fixes: PF OA requires
+  moderate+ chondral loss (323 downgraded, AUC .824->.839); MedMen requires
+  surface-reaching tear (122 downgraded, .899->.908). Macro .834->.836. NOTE: audit
+  flagged 7 gold-58 labels as likely WRONG (4 PF OA gold=1 with no PF mention in
+  report incl. one explicit normal; 3 MedMen gold=0 with explicit tear in report) —
+  gold-58 scoring has a noise floor; corpus gains likely exceed measured deltas.
+  Pattern established: 3 audits, 3 wins — severity-bar mismatch is THE systematic
+  extractor error class, worth auditing remaining high-prevalence labels.
 - 2026-08-13: BLOCKED on principal for: (a) Kaggle API token at `~/.kaggle/kaggle.json`,
   (b) accepting competition rules on the Kaggle website (cannot be done via CLI).
 
