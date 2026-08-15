@@ -6,7 +6,19 @@ import subprocess, sys, os, json, glob, collections
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "timm"], check=True)
 
 ASSETS = "/kaggle/input/rsna-knee-taboost-assets"
-COMP = "/kaggle/input/rsna-knee-abnormality-detection"
+# Resolve competition mount defensively: find the dir containing train_series.csv
+import pathlib
+print("INPUT DIRS:", os.listdir("/kaggle/input"))
+COMP = None
+for d in pathlib.Path("/kaggle/input").iterdir():
+    print(f"  {d.name}: {[f.name for f in list(d.iterdir())[:8]]}")
+    if (d / "train_series.csv").exists():
+        COMP = str(d)
+if COMP is None:
+    hits = list(pathlib.Path("/kaggle/input").rglob("train_series.csv"))
+    assert hits, "train_series.csv not found anywhere under /kaggle/input"
+    COMP = str(hits[0].parent)
+print("COMP resolved to:", COMP)
 sys.path.insert(0, ASSETS)
 os.makedirs("/kaggle/working/artifacts", exist_ok=True)
 
@@ -54,7 +66,7 @@ print("LABEL_WEIGHTS:", json.dumps(weights))
 
 # ---- Step 2+3: train via package CLI ----
 from rsna_knee.imaging import train as train_mod
-common = ["--fold", "0", "--labels-csv", f"{ASSETS}/pseudo_labels_sonnet_v1.csv",
+common = ["--fold", "0", "--labels-csv", f"{ASSETS}/pseudo_labels_sonnet_v1_1.csv",
           "--gold-csv", f"{COMP}/train.csv", "--series-csv", f"{COMP}/train_series.csv",
           "--splits-csv", "/kaggle/working/artifacts/splits_final.csv",
           "--data-root", f"{COMP}/train_series", "--out", "/kaggle/working/artifacts",
