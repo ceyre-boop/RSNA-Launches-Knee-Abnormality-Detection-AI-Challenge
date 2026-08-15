@@ -257,6 +257,14 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
   gold-58 scoring has a noise floor; corpus gains likely exceed measured deltas.
   Pattern established: 3 audits, 3 wins — severity-bar mismatch is THE systematic
   extractor error class, worth auditing remaining high-prevalence labels.
+- 2026-08-15: **v1.3 labels + LABEL CAMPAIGN CLOSED.** OA audit (19 cases): C=12
+  dominates (annotator-vs-report — irreducible from text), B=3 only; 5 more gold
+  annotation misses found (explicit OA in report, gold=0) — total suspect gold now ~12.
+  Yield curve bent as predicted (+0.011 -> +0.002 -> +0.000 gold-measurable). Shipped:
+  graded severity columns (Effusion/PF OA/MedOA/LatOA/MedMen, 0/1/2) so the positivity
+  bar is a training hyperparameter, not a constant; 239 grade-1-only OA positives
+  downgraded (gold-neutral, expected — gold cannot resolve this move); traumatic
+  chondral injury excluded from OA. NO further label audits until LB data exists.
 - 2026-08-13: BLOCKED on principal for: (a) Kaggle API token at `~/.kaggle/kaggle.json`,
   (b) accepting competition rules on the Kaggle website (cannot be done via CLI).
 
