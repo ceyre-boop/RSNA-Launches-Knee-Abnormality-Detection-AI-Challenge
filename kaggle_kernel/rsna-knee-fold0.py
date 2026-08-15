@@ -3,7 +3,9 @@
 # 2) Smoke train (--limit 60) to validate the pipeline on Kaggle hardware
 # 3) Full fold-0 training with per-label noise-aware loss weights
 import subprocess, sys, os, json, glob, collections
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "timm"], check=True)
+# --no-deps: timm's deps would upgrade torch to a build incompatible with Kaggle's GPU
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-deps", "timm"], check=True)
+import torch; print("torch", torch.__version__, "cuda", torch.version.cuda, "device_ok", torch.cuda.is_available())
 
 import pathlib
 _hits = list(pathlib.Path("/kaggle/input").rglob("pseudo_labels_sonnet_v1_1.csv"))
