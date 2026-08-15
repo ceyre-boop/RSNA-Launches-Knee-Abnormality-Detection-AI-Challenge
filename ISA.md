@@ -241,6 +241,13 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
 - 2026-08-15: Submission cadence: multiple submissions/day allowed (typically 5); only
   2 selected finals count. Submit early and often for CV<->LB correlation (ISC-17);
   never select finals by public LB (ISC-38 stands).
+- 2026-08-15: **Pre-registered fold-0 expectation (before seeing the number):** OOF macro
+  AUC vs v1.1 pseudo-labels expected 0.72-0.80. >0.87 = leakage smell (suspect near-dup
+  reports escaping hash grouping) — investigate before celebrating. <0.62 = pipeline bug
+  (slot mask/laterality/loss-weight). First submission is for CV<->LB signal, not score.
+- 2026-08-15: Synovitis ceiling note: audit showed reports are structurally silent on
+  synovium (5/8 annotator-vs-report) — label partly unlearnable from report-derived
+  supervision; do NOT spend late-competition effort rescuing it beyond the 0.43 weight.
 - 2026-08-13: BLOCKED on principal for: (a) Kaggle API token at `~/.kaggle/kaggle.json`,
   (b) accepting competition rules on the Kaggle website (cannot be done via CLI).
 
