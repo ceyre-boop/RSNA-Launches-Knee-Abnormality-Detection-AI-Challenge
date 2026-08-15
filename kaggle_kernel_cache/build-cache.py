@@ -16,10 +16,12 @@ for i, uid in enumerate(uids):
     study_dir = pathlib.Path(COMP) / "train_series" / uid
     if not study_dir.exists():
         fail += 1; continue
+    plane_of = dict(zip(series[series.StudyInstanceUID == uid].SeriesInstanceUID,
+                        series[series.StudyInstanceUID == uid].Anatomical_Plane))
     arrs = {}
     for sdir in study_dir.iterdir():
         try:
-            vol = load_series_volume(str(sdir), img_size=224)
+            vol = load_series_volume(str(sdir), plane=plane_of.get(sdir.name, "Sagittal"), img_size=224)
             arrs[sdir.name] = vol.astype(np.float16)
         except Exception as e:
             print(f"WARN {uid}/{sdir.name}: {e}")
