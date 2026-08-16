@@ -147,6 +147,89 @@ class CoDriftTests(unittest.TestCase):
         )
 
 
+class JointBandTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.labels_frame = synthetic_labels()
+        self.probs = synthetic_probs(self.labels_frame)
+        self.weights = {label: 0.9 for label in TARGET_LABELS}
+        self.thresholds = {label: (0.5, "empirical") for label in TARGET_LABELS}
+
+    def _flags(self, **per_label) -> pd.DataFrame:
+        flags = pd.DataFrame({STUDY_ID_COLUMN: self.labels_frame[STUDY_ID_COLUMN]})
+        for label in TARGET_LABELS:
+            flags[label] = False
+        for label, indices in per_label.items():
+            flags.loc[indices, label] = True
+        return flags
+
+    def test_band_is_twenty_percent_relative(self) -> None:
+        self.assertEqual(corrections.JOINT_BAND_RELATIVE, 0.20)
+        self.assertEqual(corrections.joint_band(0.30), (0.30 * 0.8, 0.30 * 1.2))
+
+    def test_baseline_cooccurrence_covers_the_three_pairs(self) -> None:
+        baseline = corrections.baseline_cooccurrence(self.labels_frame)
+        self.assertEqual(set(baseline), set(corrections.CORRELATED_PAIRS))
+        # synthetic_labels marks the first 30% of studies positive on every label.
+        for value in baseline.values():
+            self.assertAlmostEqual(value, 0.30)
+
+    def test_in_band_round_rejects_nothing(self) -> None:
+        flags = self._flags(ACL=[0, 1, 2])
+        result = corrections.apply_corrections(
+            self.labels_frame,
+            self.probs,
+            flags,
+            label_weights=self.weights,
+            thresholds=self.thresholds,
+        )
+        self.assertEqual(
+            result.joint_band_rejections["ACL & Contusion"], 0
+        )
+        self.assertEqual(result.per_label["ACL"].accepted, 3)
+        self.assertTrue(all(row["within_band"] for row in result.joint_bands))
+
+    def test_joint_band_rejection_fires_on_a_synthetic_violation(self) -> None:
+        # Disjoint flips on both halves of a pair drive the joint-positive rate
+        # down twice as fast as either label's own prevalence: 60 joint positives
+        # become 44 (0.22), below the 0.24 band floor.
+        flags = self._flags(ACL=list(range(0, 8)), Contusion=list(range(8, 16)))
+        result = corrections.apply_corrections(
+            self.labels_frame,
+            self.probs,
+            flags,
+            label_weights=self.weights,
+            thresholds=self.thresholds,
+        )
+        key = "ACL & Contusion"
+        row = next(item for item in result.joint_bands if item["pair"] == ["ACL", "Contusion"])
+
+        self.assertGreater(result.joint_band_rejections[key], 0)
+        self.assertEqual(result.joint_band_rejections[key], row["rejections"])
+        self.assertTrue(row["within_band"])
+        self.assertGreaterEqual(row["joint_prevalence_after"], row["band_low"] - 1e-9)
+        self.assertLessEqual(row["joint_prevalence_after"], row["band_high"] + 1e-9)
+        self.assertAlmostEqual(row["baseline_joint_prevalence"], 0.30)
+
+        # Most-confident flips survive up to the band edge: some corrections stick.
+        accepted = result.per_label["ACL"].accepted + result.per_label["Contusion"].accepted
+        self.assertGreater(accepted, 0)
+        self.assertLess(accepted, 16)
+        # The co-drift layer did not fire here - the band is what constrained it.
+        self.assertEqual(result.paused_pairs, [])
+
+    def test_untouched_pairs_are_unaffected(self) -> None:
+        flags = self._flags(ACL=list(range(0, 8)), Contusion=list(range(8, 16)))
+        result = corrections.apply_corrections(
+            self.labels_frame,
+            self.probs,
+            flags,
+            label_weights=self.weights,
+            thresholds=self.thresholds,
+        )
+        self.assertEqual(result.joint_band_rejections["Medial Meniscus & Medial OA"], 0)
+        self.assertEqual(result.joint_band_rejections["Lateral Meniscus & Lateral OA"], 0)
+
+
 class ApplyCorrectionsTests(unittest.TestCase):
     def setUp(self) -> None:
         self.labels_frame = synthetic_labels()
@@ -242,6 +325,11 @@ class ApplyCorrectionsTests(unittest.TestCase):
         payload = json.loads(json.dumps(result.report()))
         self.assertEqual(payload["per_label"]["ACL"]["accepted"], 2)
         self.assertEqual(len(payload["codrift"]), 3)
+        self.assertEqual(len(payload["joint_bands"]), 3)
+        self.assertEqual(
+            set(payload["joint_band_rejections"]),
+            {"ACL & Contusion", "Medial Meniscus & Medial OA", "Lateral Meniscus & Lateral OA"},
+        )
 
 
 class LabelWeightTests(unittest.TestCase):

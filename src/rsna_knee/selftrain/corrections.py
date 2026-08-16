@@ -9,8 +9,11 @@ after that is deliberately conservative:
   across labels, weighted by CV-estimated per-label AUC
 - accepted flips per label are capped so post-correction prevalence stays inside
   a band around current prevalence, and the band tightens as label AUC falls
-- the three correlated pairs are watched for joint drift; a pair that moves
-  together far more than chance pauses that pair for manual review
+- the three correlated pairs carry a hard joint-prevalence band: post-correction
+  joint-positive rate must stay within +/-20% relative of the pre-round baseline,
+  and flips that would breach it are rejected (most confident kept to the edge)
+- on top of that band, the same pairs are still watched for joint drift; a pair
+  that moves together far more than chance pauses that pair for manual review
 
 ``cleanlab`` is imported lazily so the rest of the module - caps, bands, co-drift
 - runs and is testable without it.
@@ -45,6 +48,12 @@ CORRELATED_PAIRS: Tuple[Tuple[str, str], ...] = (
 )
 CODRIFT_RATIO_THRESHOLD = 2.0
 CODRIFT_MIN_JOINT = 3
+
+# Hard constraint, not a monitor: the joint-positive rate of each correlated pair
+# must stay within +/-20% RELATIVE of its pre-round baseline. Corrections that
+# would push a pair outside the band are rejected (most-confident flips are kept
+# up to the band edge). The co-drift pause remains as a second layer on top.
+JOINT_BAND_RELATIVE = 0.20
 
 DEFAULT_LABEL_WEIGHTS = "artifacts/fold0/label_weights.json"
 PRED_SUFFIX = "_pred"
@@ -81,6 +90,8 @@ class CorrectionResult:
     n_studies: int
     n_skipped: int
     flags: pd.DataFrame = field(repr=False, default_factory=pd.DataFrame)
+    joint_bands: List[Dict[str, object]] = field(default_factory=list)
+    joint_band_rejections: Dict[str, int] = field(default_factory=dict)
 
     def report(self) -> Dict[str, object]:
         return {
@@ -106,6 +117,8 @@ class CorrectionResult:
             },
             "codrift": self.codrift,
             "paused_pairs": self.paused_pairs,
+            "joint_bands": self.joint_bands,
+            "joint_band_rejections": self.joint_band_rejections,
         }
 
 
@@ -293,6 +306,10 @@ def cap_corrections(
     ``current`` are the existing (possibly soft) labels, ``candidates`` the CL
     flags, ``probs`` the teacher probabilities. Returns a boolean acceptance mask
     aligned with ``candidates``.
+
+    This is the single-label band only. The joint-prevalence band across the
+    correlated pairs is a second hard constraint applied by ``apply_corrections``
+    through ``enforce_joint_bands``, which can revoke flips accepted here.
     """
     n = len(current)
     accepted = np.zeros(n, dtype=bool)
@@ -319,6 +336,126 @@ def cap_corrections(
         accepted[index] = True
         positives = candidate_positives
     return accepted
+
+
+# --- joint prevalence bands --------------------------------------------------
+
+
+def _pair_key(first: str, second: str) -> str:
+    return f"{first} & {second}"
+
+
+def _binary(frame: pd.DataFrame, label: str) -> np.ndarray:
+    return pd.to_numeric(frame[label], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+
+
+def baseline_cooccurrence(
+    labels_df: pd.DataFrame,
+    *,
+    pairs: Sequence[Tuple[str, str]] = CORRELATED_PAIRS,
+    threshold: float = 0.5,
+) -> Dict[Tuple[str, str], float]:
+    """Pre-round joint-positive rate for each correlated pair, at ``threshold``.
+
+    This is the anchor for the hard band enforced by ``enforce_joint_bands``: a
+    round may move a pair's joint prevalence, but not by more than
+    ``JOINT_BAND_RELATIVE`` of where it started.
+    """
+    n = len(labels_df)
+    rates: Dict[Tuple[str, str], float] = {}
+    for first, second in pairs:
+        if first not in labels_df.columns or second not in labels_df.columns:
+            continue
+        if not n:
+            rates[(first, second)] = 0.0
+            continue
+        joint = (_binary(labels_df, first) >= threshold) & (
+            _binary(labels_df, second) >= threshold
+        )
+        rates[(first, second)] = float(joint.mean())
+    return rates
+
+
+def joint_band(baseline: float, *, relative: float = JOINT_BAND_RELATIVE) -> Tuple[float, float]:
+    """Allowed post-correction joint prevalence window: +/-``relative`` of baseline."""
+    return baseline * (1.0 - relative), baseline * (1.0 + relative)
+
+
+def enforce_joint_bands(
+    original: Dict[str, np.ndarray],
+    updated: Dict[str, np.ndarray],
+    accepted: Dict[str, np.ndarray],
+    probs: Dict[str, np.ndarray],
+    baseline: Dict[Tuple[str, str], float],
+    *,
+    pairs: Sequence[Tuple[str, str]] = CORRELATED_PAIRS,
+    relative: float = JOINT_BAND_RELATIVE,
+) -> Tuple[List[Dict[str, object]], Dict[str, int]]:
+    """Revoke accepted flips until every pair's joint prevalence is back in band.
+
+    Mutates ``updated`` and ``accepted`` in place. Flips are revoked least
+    confident first, so the most confident corrections survive right up to the
+    band edge. Returns ``(rows, rejections_by_pair)``.
+    """
+    rows: List[Dict[str, object]] = []
+    rejections: Dict[str, int] = {}
+    for first, second in pairs:
+        if first not in updated or second not in updated:
+            continue
+        key = _pair_key(first, second)
+        base = float(baseline.get((first, second), 0.0))
+        low, high = joint_band(base, relative=relative)
+        n = len(updated[first])
+        revoked = 0
+        while n:
+            joint = int(
+                np.sum((updated[first] >= 0.5) & (updated[second] >= 0.5))
+            )
+            rate = joint / n
+            if low - 1e-9 <= rate <= high + 1e-9:
+                break
+            need_decrease = rate > high
+            best: Optional[Tuple[float, str, int]] = None
+            for label, partner in ((first, second), (second, first)):
+                partner_positive = updated[partner] >= 0.5
+                for index in np.flatnonzero(accepted[label]):
+                    before = bool(updated[label][index] >= 0.5) and bool(
+                        partner_positive[index]
+                    )
+                    after = bool(original[label][index] >= 0.5) and bool(
+                        partner_positive[index]
+                    )
+                    change = int(after) - int(before)
+                    if need_decrease and change >= 0:
+                        continue
+                    if not need_decrease and change <= 0:
+                        continue
+                    confidence = abs(float(probs[label][index]) - 0.5)
+                    if best is None or (confidence, label, int(index)) < best:
+                        best = (confidence, label, int(index))
+            if best is None:
+                break
+            _, label, index = best
+            updated[label][index] = original[label][index]
+            accepted[label][index] = False
+            revoked += 1
+
+        joint = int(np.sum((updated[first] >= 0.5) & (updated[second] >= 0.5))) if n else 0
+        rejections[key] = revoked
+        rows.append(
+            {
+                "pair": [first, second],
+                "baseline_joint_prevalence": base,
+                "band_low": low,
+                "band_high": high,
+                "joint_prevalence_after": (joint / n) if n else 0.0,
+                "rejections": revoked,
+                "within_band": bool(
+                    n == 0 or (low - 1e-9 <= joint / n <= high + 1e-9)
+                ),
+            }
+        )
+    return rows, rejections
 
 
 # --- co-drift ----------------------------------------------------------------
@@ -383,10 +520,16 @@ def apply_corrections(
     max_corrections: Optional[int] = None,
     protected_ids: Optional[Set[str]] = None,
 ) -> CorrectionResult:
-    """Apply capped, co-drift-checked corrections to the current label set.
+    """Apply capped, band-constrained, co-drift-checked corrections.
 
     ``flags`` is the candidate mask (from ``find_candidates`` or supplied
     directly). ``protected_ids`` - the gold studies - are never corrected.
+
+    Three layers, in order: the per-label prevalence cap (``cap_corrections``),
+    the hard joint-prevalence band on the correlated pairs
+    (``enforce_joint_bands``, +/-``JOINT_BAND_RELATIVE`` of the pre-round
+    baseline), and finally the co-drift pause, which reverts a pair outright when
+    its corrections move together far more than chance.
     """
     frame = labels_frame.copy()
     frame[STUDY_ID_COLUMN] = frame[STUDY_ID_COLUMN].astype(str)
@@ -396,6 +539,11 @@ def apply_corrections(
     accepted_frame = pd.DataFrame({STUDY_ID_COLUMN: frame[STUDY_ID_COLUMN]})
     per_label: Dict[str, LabelCorrection] = {}
     n = len(frame)
+
+    original_values: Dict[str, np.ndarray] = {}
+    updated_values: Dict[str, np.ndarray] = {}
+    accepted_masks: Dict[str, np.ndarray] = {}
+    prob_values: Dict[str, np.ndarray] = {}
 
     for label in labels:
         current = pd.to_numeric(frame[label], errors="coerce").fillna(0.0).to_numpy(dtype=float)
@@ -417,8 +565,11 @@ def apply_corrections(
 
         updated = current.copy()
         updated[accepted] = np.where(current[accepted] >= 0.5, 0.0, 1.0)
-        frame[label] = updated
-        accepted_frame[label] = accepted
+
+        original_values[label] = current
+        updated_values[label] = updated
+        accepted_masks[label] = accepted
+        prob_values[label] = probs
 
         positives_after = int((updated >= 0.5).sum())
         per_label[label] = LabelCorrection(
@@ -435,6 +586,28 @@ def apply_corrections(
             prevalence_after=positives_after / n if n else 0.0,
             band_low=band[0],
             band_high=band[1],
+        )
+
+    # Layer two: the hard joint-prevalence band on the correlated pairs. This may
+    # revoke flips the per-label cap accepted, least confident first.
+    baseline = baseline_cooccurrence(labels_frame)
+    joint_bands, joint_band_rejections = enforce_joint_bands(
+        original_values, updated_values, accepted_masks, prob_values, baseline
+    )
+
+    for label in labels:
+        updated = updated_values[label]
+        accepted = accepted_masks[label]
+        frame[label] = updated
+        accepted_frame[label] = accepted
+        item = per_label[label]
+        positives_after = int((updated >= 0.5).sum())
+        per_label[label] = replace(
+            item,
+            accepted=int(accepted.sum()),
+            capped=item.candidates - int(accepted.sum()),
+            positives_after=positives_after,
+            prevalence_after=positives_after / n if n else 0.0,
         )
 
     codrift = codrift_report(labels_frame, accepted_frame)
@@ -463,6 +636,8 @@ def apply_corrections(
         n_studies=n,
         n_skipped=int(protected_mask.sum()),
         flags=accepted_frame,
+        joint_bands=joint_bands,
+        joint_band_rejections=joint_band_rejections,
     )
 
 

@@ -13,13 +13,21 @@ from rsna_knee.selftrain import referee  # noqa: E402
 from rsna_knee.selftrain.gold_split import GoldSplit  # noqa: E402
 
 LABELS = TARGET_LABELS[:3]
+ALL_LABELS = list(referee.TRUSTED_LABELS) + list(referee.GAP_LABELS)
 
 
-def synthetic_oof(n: int = 200, *, noise: float, seed: int = 0, prefix: str = "s") -> pd.DataFrame:
+def synthetic_oof(
+    n: int = 200,
+    *,
+    noise: float,
+    seed: int = 0,
+    prefix: str = "s",
+    labels=LABELS,
+) -> pd.DataFrame:
     """Predictions that get better as ``noise`` shrinks; truth is fixed by index."""
     rng = random.Random(seed)
     data = {STUDY_ID_COLUMN: [f"{prefix}-{index:04d}" for index in range(n)]}
-    for offset, label in enumerate(LABELS):
+    for offset, label in enumerate(labels):
         truth = [1 if (index + offset) % 3 == 0 else 0 for index in range(n)]
         preds = [value + rng.uniform(-noise, noise) for value in truth]
         data[label + "_true"] = truth
@@ -60,6 +68,94 @@ class CvGateTests(unittest.TestCase):
         self.assertEqual(referee.GOLD_EFFECT_FLOOR, 0.02)
         self.assertEqual(referee.GOLD_CHECK_EVERY_N_ROUNDS, 2)
         self.assertEqual(referee.MAX_ROUNDS, 3)
+
+
+class StratifiedCvGateTests(unittest.TestCase):
+    """The gate decides on TRUSTED_LABELS only; GAP_LABELS are advisory."""
+
+    def _pair(self, seed: int = 7):
+        prev = synthetic_oof(noise=0.9, seed=seed, labels=ALL_LABELS)
+        new = synthetic_oof(noise=0.3, seed=seed, labels=ALL_LABELS)
+        return prev, new
+
+    @staticmethod
+    def _invert(frame: pd.DataFrame, label: str) -> None:
+        frame[label + "_pred"] = [1.0 - value for value in frame[label + "_pred"]]
+
+    def test_label_partition_is_the_precommitted_one(self) -> None:
+        self.assertEqual(
+            referee.TRUSTED_LABELS,
+            ["ACL", "MCL", "Medial Meniscus", "Lateral Meniscus", "Baker's", "Fracture"],
+        )
+        self.assertEqual(
+            referee.GAP_LABELS,
+            ["Effusion", "Synovitis", "Medial OA", "Lateral OA", "PF OA", "Contusion"],
+        )
+        # The two sets partition the target labels exactly, with no overlap.
+        self.assertEqual(
+            set(referee.TRUSTED_LABELS) | set(referee.GAP_LABELS), set(TARGET_LABELS)
+        )
+        self.assertEqual(set(referee.TRUSTED_LABELS) & set(referee.GAP_LABELS), set())
+
+    def test_cv_lb_anchor_records_step_zero(self) -> None:
+        self.assertEqual(
+            referee.CV_LB_ANCHOR,
+            {
+                "cv": 0.804,
+                "lb": 0.840,
+                "date": "2026-08-16",
+                "note": "fold-0 v1.1; LB>CV consistent with directional report-gap bias",
+            },
+        )
+        self.assertGreater(referee.CV_LB_ANCHOR["lb"], referee.CV_LB_ANCHOR["cv"])
+
+    def test_accepts_when_trusted_improve_even_if_gap_labels_degrade(self) -> None:
+        prev, new = self._pair()
+        for label in referee.GAP_LABELS:
+            self._invert(new, label)
+        result = referee.cv_gate(prev, new, labels=ALL_LABELS)
+
+        self.assertTrue(result.accepted, msg=result.reasons)
+        # The gate macro is over trusted labels only.
+        self.assertEqual(set(result.labels), set(referee.TRUSTED_LABELS))
+        self.assertGreaterEqual(result.macro_delta, referee.CV_GATE_MACRO_MIN_DELTA)
+        # Gap labels are visibly wrecked, reported, and ignored.
+        self.assertEqual(set(result.gap_labels), set(referee.GAP_LABELS))
+        self.assertEqual(set(result.advisory_gap_deltas), set(referee.GAP_LABELS))
+        self.assertTrue(
+            all(delta < -referee.CV_GATE_PER_LABEL_DEGRADATION_FLOOR
+                for delta in result.advisory_gap_deltas.values())
+        )
+        self.assertEqual(result.degraded, [])
+
+    def test_rejects_when_a_trusted_label_degrades(self) -> None:
+        prev, new = self._pair()
+        broken = referee.TRUSTED_LABELS[2]
+        self._invert(new, broken)
+        result = referee.cv_gate(prev, new, labels=ALL_LABELS)
+
+        self.assertFalse(result.accepted)
+        self.assertIn(broken, result.degraded)
+        self.assertTrue(any("trusted labels degraded" in reason for reason in result.reasons))
+
+    def test_gap_deltas_cannot_rescue_a_flat_trusted_macro(self) -> None:
+        prev, _ = self._pair()
+        new = prev.copy()
+        # Gap labels improve a lot; trusted labels do not move at all.
+        better = synthetic_oof(noise=0.05, seed=7, labels=ALL_LABELS)
+        for label in referee.GAP_LABELS:
+            new[label + "_pred"] = better[label + "_pred"]
+        result = referee.cv_gate(prev, new, labels=ALL_LABELS)
+
+        self.assertFalse(result.accepted)
+        self.assertAlmostEqual(result.macro_delta, 0.0)
+        self.assertTrue(all(delta > 0 for delta in result.advisory_gap_deltas.values()))
+
+    def test_gate_refuses_to_decide_on_gap_labels_alone(self) -> None:
+        prev = synthetic_oof(noise=0.9, seed=8, labels=referee.GAP_LABELS)
+        new = synthetic_oof(noise=0.2, seed=8, labels=referee.GAP_LABELS)
+        with self.assertRaises(ValueError):
+            referee.cv_gate(prev, new, labels=referee.GAP_LABELS)
 
 
 class GoldCheckTests(unittest.TestCase):
@@ -116,6 +212,38 @@ class GoldCheckTests(unittest.TestCase):
         )
         self.assertEqual(result.slice_name, "locked")
         self.assertEqual(result.n_studies, len(self.split.locked))
+
+    def test_final_check_is_a_smoke_alarm_not_a_thermometer(self) -> None:
+        result = referee.final_check(
+            self.prev, self.new_better, self.split, final_unlock=True, draws=100, labels=LABELS
+        )
+        self.assertTrue(result.smoke_alarm_only)
+        self.assertGreater(result.macro_delta, 0.0)
+        # A large positive delta still cannot be called an improvement at n=18.
+        self.assertEqual(result.signal, "none")
+        self.assertFalse(result.veto)
+        self.assertTrue(any("smoke alarm only" in reason for reason in result.reasons))
+        self.assertTrue(
+            any("NOT confirmation of improvement" in reason for reason in result.reasons)
+        )
+
+    def test_final_check_fires_on_catastrophic_drift(self) -> None:
+        result = referee.final_check(
+            self.prev, self.new_worse, self.split, final_unlock=True, draws=100, labels=LABELS
+        )
+        self.assertTrue(result.smoke_alarm_only)
+        self.assertLess(result.macro_delta, referee.SMOKE_ALARM_FLOOR)
+        self.assertEqual(result.signal, "catastrophic")
+        self.assertTrue(result.veto)
+
+    def test_smoke_alarm_floor_is_precommitted(self) -> None:
+        self.assertEqual(referee.SMOKE_ALARM_FLOOR, -0.10)
+
+    def test_working_gold_check_is_not_a_smoke_alarm(self) -> None:
+        result = referee.gold_check(
+            self.prev, self.new_better, self.split, round_index=2, draws=100, labels=LABELS
+        )
+        self.assertFalse(result.smoke_alarm_only)
 
     def test_cv_gate_rejects_locked_studies_when_a_split_is_given(self) -> None:
         with self.assertRaises(referee.LockedSliceError):

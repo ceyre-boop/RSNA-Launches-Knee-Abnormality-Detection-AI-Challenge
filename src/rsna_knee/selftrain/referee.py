@@ -1,10 +1,13 @@
 """The referee: what is allowed to accept or reject a self-training round.
 
 Primary gate is cross-validated (``cv_gate``) on the ~877-study fold OOF, because
-gold-58 has no power to resolve the 0.01-0.03 gains a round produces. The gold
-working slice gives an advisory directional read every second round
+gold-58 has no power to resolve the 0.01-0.03 gains a round produces. That gate
+is stratified: only ``TRUSTED_LABELS`` decide accept/reject, because on
+``GAP_LABELS`` the pseudo-label noise is directionally biased and CV movement is
+anti-correlated with the real objective (see ``cv_gate`` and ``CV_LB_ANCHOR``).
+The gold working slice gives an advisory directional read every second round
 (``gold_check``); the locked slice is spent exactly once, at the end of the
-campaign (``final_check``).
+campaign (``final_check``), and only as a smoke alarm for catastrophic drift.
 
 Every threshold below is pre-committed. They are constants, not parameters, so
 that nothing is tuned after peeking at a result.
@@ -26,6 +29,46 @@ from .gold_split import GoldSplit, load_split
 # --- pre-committed constants -------------------------------------------------
 CV_GATE_MACRO_MIN_DELTA = 0.003
 CV_GATE_PER_LABEL_DEGRADATION_FLOOR = 0.01
+
+# Step-zero record: the one measured CV/LB pair this campaign is calibrated on.
+# CV underestimates the image-annotated truth because the pseudo-label noise is
+# directional (findings visible on the image, absent from the report), so the
+# public LB reads higher than the fold OOF on the same checkpoint.
+CV_LB_ANCHOR = {
+    "cv": 0.804,
+    "lb": 0.840,
+    "date": "2026-08-16",
+    "note": "fold-0 v1.1; LB>CV consistent with directional report-gap bias",
+}
+
+# Labels whose report extraction quality is >= 0.83 and whose residual error the
+# audit found to be threshold-artifact-dominated: CV movement on these tracks the
+# real objective, so they alone decide accept/reject.
+TRUSTED_LABELS = [
+    "ACL",
+    "MCL",
+    "Medial Meniscus",
+    "Lateral Meniscus",
+    "Baker's",
+    "Fracture",
+]
+
+# Labels the audit found to be annotator-vs-report-dominated: the image is
+# annotated positive and the report is silent. CV on these measures agreement
+# with the report, not with the truth being scored, so it is uninformative and
+# strictly advisory. The leaderboard is the arbiter for these six.
+GAP_LABELS = [
+    "Effusion",
+    "Synovitis",
+    "Medial OA",
+    "Lateral OA",
+    "PF OA",
+    "Contusion",
+]
+
+# final_check is a smoke alarm, not a thermometer: n=18 at ~22% label noise can
+# only see a fire, never a degree.
+SMOKE_ALARM_FLOOR = -0.10
 
 GOLD_BOOTSTRAP_DRAWS = 3000
 GOLD_DIRECTION_AGREEMENT = 0.90
@@ -54,6 +97,9 @@ class CvGateResult:
     n_studies: int
     labels: List[str]
     reasons: List[str] = field(default_factory=list)
+    # Gap-label deltas are reported, never gated on. See ``cv_gate``.
+    advisory_gap_deltas: Dict[str, float] = field(default_factory=dict)
+    gap_labels: List[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -69,6 +115,8 @@ class GoldCheckResult:
     veto: bool
     labels: List[str] = field(default_factory=list)
     reasons: List[str] = field(default_factory=list)
+    # True on the locked slice: the read can only flag catastrophic drift.
+    smoke_alarm_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -178,12 +226,33 @@ def cv_gate(
     labels: Sequence[str] = TARGET_LABELS,
     macro_min_delta: float = CV_GATE_MACRO_MIN_DELTA,
     degradation_floor: float = CV_GATE_PER_LABEL_DEGRADATION_FLOOR,
+    trusted_labels: Sequence[str] = TRUSTED_LABELS,
+    gap_labels: Sequence[str] = GAP_LABELS,
 ) -> CvGateResult:
-    """Primary accept/reject on fold OOF AUC deltas.
+    """Primary accept/reject on fold OOF AUC deltas, stratified by label trust.
 
-    Accept iff macro delta >= ``macro_min_delta`` and no label drops by more than
-    ``degradation_floor``. If ``split`` is given, the evaluated studies are
-    checked against the locked slice first.
+    Accept iff the macro delta **over ``TRUSTED_LABELS`` only** is at least
+    ``macro_min_delta`` and no trusted label drops by more than
+    ``degradation_floor``. Deltas on ``GAP_LABELS`` are still computed and
+    returned in ``advisory_gap_deltas``, but they never enter the decision.
+
+    Why stratify. The pseudo-label noise here is not symmetric: on the gap
+    labels the finding is visible on the image and simply absent from the
+    report, so the OOF truth column disagrees with the truth being scored in a
+    single direction. CV movement on those labels measures agreement with the
+    report, which is anti-correlated with the real objective - a round that
+    learns the finding looks like a regression against report-derived truth. The
+    trusted labels (extraction quality >= 0.83, residual error audited as
+    threshold-artifact-dominated) do not have that problem, so they carry the
+    decision; the leaderboard is the arbiter for the gap labels.
+
+    Empirical anchor (``CV_LB_ANCHOR``): fold-0 CV 0.804 vs LB 0.840, a +0.036
+    gap in the direction the bias predicts - CV underestimates image-annotated
+    truth. Gating on a pooled macro that includes gap labels would therefore
+    reject exactly the rounds that close that gap.
+
+    If ``split`` is given, the evaluated studies are checked against the locked
+    slice first.
     """
     prev, new = _align(load_oof(oof_prev), load_oof(oof_new))
     if split is not None:
@@ -199,30 +268,53 @@ def cv_gate(
     new_auc = per_label_auc(new, usable)
     deltas = {label: new_auc[label] - prev_auc[label] for label in usable}
 
-    macro_prev = sum(prev_auc.values()) / len(usable)
-    macro_new = sum(new_auc.values()) / len(usable)
+    trusted_set, gap_set = set(trusted_labels), set(gap_labels)
+    trusted_usable = [label for label in usable if label in trusted_set]
+    gap_usable = [label for label in usable if label in gap_set]
+    if not trusted_usable:
+        raise ValueError(
+            "no trusted label is scorable on both OOF frames; the gate cannot be "
+            f"decided on gap labels alone (trusted: {sorted(trusted_set)})"
+        )
+
+    macro_prev = sum(prev_auc[label] for label in trusted_usable) / len(trusted_usable)
+    macro_new = sum(new_auc[label] for label in trusted_usable) / len(trusted_usable)
     macro_delta = macro_new - macro_prev
-    degraded = sorted(label for label, delta in deltas.items() if delta < -degradation_floor)
+    degraded = sorted(
+        label for label in trusted_usable if deltas[label] < -degradation_floor
+    )
 
     reasons: List[str] = []
     if macro_delta < macro_min_delta:
-        reasons.append(f"macro delta {macro_delta:+.4f} below floor {macro_min_delta:+.4f}")
+        reasons.append(
+            f"trusted macro delta {macro_delta:+.4f} below floor {macro_min_delta:+.4f}"
+        )
     if degraded:
         reasons.append(
-            "labels degraded past floor: "
+            "trusted labels degraded past floor: "
             + ", ".join(f"{label} {deltas[label]:+.4f}" for label in degraded)
         )
 
+    advisory = {label: deltas[label] for label in gap_usable}
+    if advisory:
+        reasons.append(
+            "advisory only (not gated): "
+            + ", ".join(f"{label} {advisory[label]:+.4f}" for label in gap_usable)
+        )
+
+    accepted = not (macro_delta < macro_min_delta or degraded)
     return CvGateResult(
-        accepted=not reasons,
+        accepted=accepted,
         macro_prev=macro_prev,
         macro_new=macro_new,
         macro_delta=macro_delta,
         per_label_delta=deltas,
         degraded=degraded,
         n_studies=len(prev),
-        labels=usable,
+        labels=trusted_usable,
         reasons=reasons,
+        advisory_gap_deltas=advisory,
+        gap_labels=gap_usable,
     )
 
 
@@ -321,8 +413,24 @@ def final_check(
     agreement_floor: float = GOLD_DIRECTION_AGREEMENT,
     effect_floor: float = GOLD_EFFECT_FLOOR,
     labels: Sequence[str] = TARGET_LABELS,
+    smoke_alarm_floor: float = SMOKE_ALARM_FLOOR,
 ) -> GoldCheckResult:
-    """Single end-of-campaign read on the locked slice. Requires ``final_unlock``."""
+    """Single end-of-campaign read on the locked slice: a smoke alarm, not a thermometer.
+
+    The locked slice is 18 studies carrying roughly 22% label noise. That is
+    enough resolution to notice the building on fire and nothing else. So this
+    check has exactly one output with any authority: it fires when the macro
+    delta is worse than ``smoke_alarm_floor`` (-0.10), i.e. catastrophic drift.
+
+    It cannot confirm an improvement. A positive delta here is not evidence the
+    campaign worked - at n=18 the confidence interval swallows every gain a
+    round can plausibly produce, so ``signal`` is never "positive" and ``veto``
+    is never lifted by a good read. Do not report this number as a result.
+    ``smoke_alarm_only`` is set to ``True`` on the returned object to keep that
+    reading attached to the data.
+
+    Requires ``final_unlock``.
+    """
     if not final_unlock:
         raise LockedSliceError(
             "final_check reads the locked gold slice; call it once, with final_unlock=True"
@@ -337,6 +445,8 @@ def final_check(
         effect_floor=effect_floor,
         labels=labels,
         final_unlock=True,
+        smoke_alarm=True,
+        smoke_alarm_floor=smoke_alarm_floor,
     )
 
 
@@ -351,6 +461,8 @@ def _bootstrap_slice(
     effect_floor: float,
     labels: Sequence[str],
     final_unlock: bool,
+    smoke_alarm: bool = False,
+    smoke_alarm_floor: float = SMOKE_ALARM_FLOOR,
 ) -> GoldCheckResult:
     resolved = _resolve_split(split)
     prev, new = _align(load_oof(oof_prev), load_oof(oof_new))
@@ -383,16 +495,43 @@ def _bootstrap_slice(
     macro_delta = sum(deltas.values()) / len(deltas)
     macro_agreement = sum(agreements) / len(agreements)
 
+    reasons = [
+        f"macro delta {macro_delta:+.4f} on {len(prev)} {slice_name} gold studies",
+        f"direction agreement {macro_agreement:.3f} over {draws} draws",
+    ]
+
+    if smoke_alarm:
+        # Smoke alarm: the only thing this slice can resolve is a fire.
+        signal = "catastrophic" if macro_delta < smoke_alarm_floor else "none"
+        reasons.append(
+            f"smoke alarm only: n={len(prev)} at ~22% label noise can flag drift "
+            f"worse than {smoke_alarm_floor:+.2f} and nothing else"
+        )
+        if signal == "none":
+            reasons.append(
+                "no catastrophic drift detected; this is NOT confirmation of improvement"
+            )
+        return GoldCheckResult(
+            ran=True,
+            slice_name=slice_name,
+            n_studies=len(prev),
+            macro_delta=macro_delta,
+            per_label_delta=deltas,
+            direction_agreement=macro_agreement,
+            draws=draws,
+            signal=signal,
+            veto=signal == "catastrophic",
+            labels=usable,
+            reasons=reasons,
+            smoke_alarm_only=True,
+        )
+
     strong = macro_agreement >= agreement_floor and abs(macro_delta) >= effect_floor
     if not strong:
         signal = "none"
     else:
         signal = "positive" if macro_delta > 0 else "negative"
 
-    reasons = [
-        f"macro delta {macro_delta:+.4f} on {len(prev)} {slice_name} gold studies",
-        f"direction agreement {macro_agreement:.3f} over {draws} draws",
-    ]
     if signal == "positive":
         reasons.append("advisory only: a positive gold read never approves a round")
 
