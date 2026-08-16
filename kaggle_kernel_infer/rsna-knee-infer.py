@@ -9,9 +9,17 @@ def find(name):
     assert hits, f"{name} not found under /kaggle/input"
     return hits[0]
 
-WHEELS = str(find("torch-2.5.1+cu121-cp312-cp312-linux_x86_64.whl").parent)
+# Kaggle strips '+' from uploaded filenames; restore PEP440-valid wheel names in /tmp
+import shutil, glob
+wsrc = find("fold0_best.pt").parent
+wtmp = "/tmp/wheels"; os.makedirs(wtmp, exist_ok=True)
+for whl in glob.glob(f"{wsrc}/*.whl"):
+    base = os.path.basename(whl)
+    fixed = base.replace("2.5.1cu121", "2.5.1+cu121").replace("0.20.1cu121", "0.20.1+cu121")
+    shutil.copy(whl, f"{wtmp}/{fixed}")
+print("wheels staged:", os.listdir(wtmp))
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-index",
-                f"--find-links={WHEELS}", "torch", "torchvision", "timm"], check=True)
+                f"--find-links={wtmp}", "torch", "torchvision", "timm"], check=True)
 
 ASSETS = str(find("pseudo_labels_sonnet_v1_3.csv").parent)
 sys.path.insert(0, ASSETS)
