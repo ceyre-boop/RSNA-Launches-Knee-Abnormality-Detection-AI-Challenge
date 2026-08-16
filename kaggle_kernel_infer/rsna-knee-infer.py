@@ -17,9 +17,16 @@ for whl in glob.glob(f"{wsrc}/*.whl"):
     base = os.path.basename(whl)
     fixed = base.replace("2.5.1cu121", "2.5.1+cu121").replace("0.20.1cu121", "0.20.1+cu121")
     shutil.copy(whl, f"{wtmp}/{fixed}")
-print("wheels staged:", os.listdir(wtmp))
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-index",
-                f"--find-links={wtmp}", "torch", "torchvision", "timm"], check=True)
+print("wheels staged:", len(os.listdir(wtmp)))
+pkgs = ["nvidia-cuda-nvrtc-cu12", "nvidia-cuda-runtime-cu12", "nvidia-cuda-cupti-cu12",
+        "nvidia-cudnn-cu12", "nvidia-cublas-cu12", "nvidia-cufft-cu12", "nvidia-curand-cu12",
+        "nvidia-cusolver-cu12", "nvidia-cusparse-cu12", "nvidia-nccl-cu12", "nvidia-nvtx-cu12",
+        "nvidia-nvjitlink-cu12", "triton", "torch", "torchvision", "timm"]
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-index", "--no-deps",
+                f"--find-links={wtmp}", *pkgs], check=True)
+# Sanity gate: fail loudly if GPU ops are broken (never emit an all-0.5 submission silently)
+import torch as _t
+assert _t.cuda.is_available() and ( _t.ones(2, device="cuda") * 2 ).sum().item() == 4.0, "GPU op check failed"
 
 ASSETS = str(find("pseudo_labels_sonnet_v1_3.csv").parent)
 sys.path.insert(0, ASSETS)
