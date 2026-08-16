@@ -25,8 +25,10 @@ def bbox_crop(vol):
     return vol[:, y0:y1, x0:x1]
 
 import cv2
-ok = fail = 0
-for n, uid in enumerate(mine):
+from concurrent.futures import ProcessPoolExecutor, as_completed
+cv2.setNumThreads(1)
+
+def process_study(uid):
     row = slot_table[slot_table.StudyInstanceUID == uid].iloc[0]
     arrs = {}
     for slot in SLOT_NAMES:
@@ -42,8 +44,20 @@ for n, uid in enumerate(mine):
             arrs[slot] = np.clip(vol*255, 0, 255).astype(np.uint8)
         except Exception as e:
             print(f"WARN {uid}/{slot}: {type(e).__name__}", flush=True)
-    if arrs:
-        np.savez_compressed(out/f"{uid}.npz", **arrs); ok += 1
-    else: fail += 1
-    if (n+1) % 100 == 0: print(f"{n+1}/{len(mine)} ok={ok}", flush=True)
+    if not arrs:
+        return uid, False
+    np.savez_compressed(out/f"{uid}.npz", **arrs)
+    return uid, True
+
+ok = fail = done = 0
+with ProcessPoolExecutor(max_workers=4) as ex:
+    futures = {ex.submit(process_study, u): u for u in mine}
+    for fut in as_completed(futures):
+        try:
+            _, success = fut.result()
+            ok += success; fail += (not success)
+        except Exception as e:
+            fail += 1; print(f"STUDYFAIL {futures[fut]}: {type(e).__name__}", flush=True)
+        done += 1
+        if done % 100 == 0: print(f"{done}/{len(mine)} ok={ok}", flush=True)
 print(f"SHARD_DONE shard={SHARD} ok={ok} fail={fail}")
