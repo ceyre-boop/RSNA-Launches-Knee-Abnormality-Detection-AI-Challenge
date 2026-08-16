@@ -1,0 +1,12 @@
+{
+  "id": "colineyre/rsna-knee-fullcache-s0",
+  "title": "rsna-knee-fullcache-s0",
+  "code_file": "build-full-cache.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_internet": false,
+  "dataset_sources": ["colineyre/rsna-knee-taboost-assets"],
+  "competition_sources": ["rsna-knee-abnormality-detection"]
+}
