@@ -1,0 +1,12 @@
+{
+  "id": "colineyre/rsna-knee-submit-fold0",
+  "title": "rsna-knee-submit-fold0",
+  "code_file": "rsna-knee-infer.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": false,
+  "dataset_sources": ["colineyre/rsna-knee-taboost-assets", "colineyre/rsna-knee-taboost-weights"],
+  "competition_sources": ["rsna-knee-abnormality-detection"]
+}

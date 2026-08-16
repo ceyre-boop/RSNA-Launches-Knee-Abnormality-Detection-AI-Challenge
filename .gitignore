@@ -11,3 +11,5 @@ data/
 !data/sonnet_results/
 !data/sonnet_results/**
 !data/splits_reporthash_5fold.csv
+kaggle_weights/
+artifacts/fold0/fold0_best.pt
