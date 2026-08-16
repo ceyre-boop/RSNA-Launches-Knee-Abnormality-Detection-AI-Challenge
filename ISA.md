@@ -265,6 +265,21 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
   bar is a training hyperparameter, not a constant; 239 grade-1-only OA positives
   downgraded (gold-neutral, expected — gold cannot resolve this move); traumatic
   chondral injury excluded from OA. NO further label audits until LB data exists.
+- 2026-08-16: **HARNESS EARNS TRUST + campaign roadmap locked.** Fold-0 pre-registered
+  0.72-0.80, landed 0.804 (ceiling of band) -> LB 0.840. No leak smell, no bug floor.
+  CV->LB gap +0.036 is now a TRACKED QUANTITY: gap ~constant => CV usable proxy with
+  offset; gap widens with self-training => report-gap mechanism confirmed (rank won on
+  advisory labels); gap collapses => rethink gate.
+- 2026-08-16: **Pre-registered prediction (before submission #2):** the public
+  0.89-0.90 cluster is one lineage, blend-fit on the ~20%-mislabeled gold-58; predict
+  it sags on private. If we land ~0.85 vs their public 0.89: do NOT panic-chase their
+  blend. Edge taxonomy: supervision edges durable (label set, self-train), inference
+  ports buy parity only (TTA pooling, fold-rank agg).
+- 2026-08-16: **Execution order locked (critic-reviewed):** (1) v1.3 delta -> submit
+  regardless of CV (2nd CV<->LB point); (2) TTA pooling as ISOLATED submission (clean
+  port measurement); (3) folds 1-4 — boring, certain, worth more rank than any loop;
+  (4) self-training round 1 only after 3-4 CV<->LB points exist. Guard: the loop must
+  not jump the fold-expansion queue.
 - 2026-08-13: BLOCKED on principal for: (a) Kaggle API token at `~/.kaggle/kaggle.json`,
   (b) accepting competition rules on the Kaggle website (cannot be done via CLI).
 
