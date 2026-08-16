@@ -65,6 +65,17 @@ def score_predictions(
     return macro_auc(y_true, y_score, usable)
 
 
+def resolve_cache_dirs(values: Optional[Sequence[str]]) -> List[Path]:
+    """Flatten repeated and comma-separated ``--cache-dirs`` values, order preserved."""
+    dirs: List[Path] = []
+    for value in values or []:
+        for part in str(value).split(","):
+            part = part.strip()
+            if part and Path(part) not in dirs:
+                dirs.append(Path(part))
+    return dirs
+
+
 def build_datasets(args: argparse.Namespace):
     series = pd.read_csv(args.series_csv)
     splits = pd.read_csv(args.splits_csv)
@@ -84,12 +95,17 @@ def build_datasets(args: argparse.Namespace):
     valid_ids = studies_for(splits["fold"].astype(int) == args.fold)
 
     loader = SeriesVolumeLoader(args.data_root, img_size=args.img_size, cache_dir=args.cache_dir)
-    train_set = StudySlotDataset(
-        train_ids, labels, slot_table, loader, img_size=args.img_size, train=True, seed=args.seed
+    cache_dirs = resolve_cache_dirs(args.cache_dirs)
+    if cache_dirs:
+        print(f"preprocessed cache dirs: {[str(path) for path in cache_dirs]}")
+    common = dict(
+        img_size=args.img_size,
+        seed=args.seed,
+        cache_dirs=cache_dirs,
+        cache_band_trimmed=not args.cache_not_band_trimmed,
     )
-    valid_set = StudySlotDataset(
-        valid_ids, labels, slot_table, loader, img_size=args.img_size, train=False, seed=args.seed
-    )
+    train_set = StudySlotDataset(train_ids, labels, slot_table, loader, train=True, **common)
+    valid_set = StudySlotDataset(valid_ids, labels, slot_table, loader, train=False, **common)
     return train_set, valid_set
 
 
@@ -177,6 +193,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--splits-csv", default="data/splits_reporthash_5fold.csv")
     parser.add_argument("--data-root", default="data/train_images")
     parser.add_argument("--cache-dir", default=None)
+    parser.add_argument(
+        "--cache-dirs",
+        action="append",
+        default=None,
+        help="preprocessed per-study npz cache dir(s); comma-separated or repeatable",
+    )
+    parser.add_argument(
+        "--cache-not-band-trimmed",
+        action="store_true",
+        help="cache volumes still carry the full stack (older float caches)",
+    )
     parser.add_argument("--out", default="artifacts/imaging")
     parser.add_argument("--backbone", default=DEFAULT_BACKBONE)
     parser.add_argument("--unfrozen-blocks", type=int, default=DEFAULT_UNFROZEN_BLOCKS)

@@ -1,0 +1,11 @@
+{
+  "id": "colineyre/rsna-knee-cache-verify",
+  "title": "rsna-knee-cache-verify",
+  "code_file": "verify.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_internet": false,
+  "kernel_sources": ["colineyre/rsna-knee-fullcache-s0", "colineyre/rsna-knee-fullcache-s1", "colineyre/rsna-knee-fullcache-s2"]
+}
