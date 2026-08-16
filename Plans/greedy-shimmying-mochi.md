@@ -1,80 +1,102 @@
-# Plan: Multilingual Report → Label Extractor (Rules v0 + LLM v1)
+# Plan: Noisy-Student Loop with Statistically Sound Referee
 
 ## Context
 
-Only 58 of 4,407 training studies carry expert labels; 4,349 have only a free-text
-radiology report, and the hidden test set is images-only. Pseudo-labels extracted from
-reports are the primary training signal for every downstream image model — extraction
-quality caps the whole solution (ISA ISC-31/32). Reports span 11+ languages (~40%
-English, then Turkish, Greek, Bulgarian, Spanish/Italian/Portuguese, German, French,
-Croatian/Bosnian, Dutch, rare Thai). The gold-58 spans most of them → valid eval set.
+Fold-0 trained (0.804 OOF), first submission scoring on LB. Next capability: the
+disciplined AlphaZero-analogue — Noisy Student self-training over the 4,407-study
+corpus. The referee-design memo (2026-08-16) establishes that gold-58 lacks power for
+per-round gating (MDE 0.09–0.20 vs real gains 0.01–0.03) and is adaptively vulnerable
+(Dwork/Blum-Hardt). This plan implements the memo's 8-step round structure on our
+existing code with CV-primary gating, split gold slices, per-label Confident Learning,
+and pre-committed stopping rules.
 
-Approved approach: **Rules v0 + LLM v1** — deterministic multilingual lexicon/negation
-engine now, Claude-API engine behind the same interface (disk-cached, resumable,
-batched), disagreements exported as an audit queue.
+## Sequencing gate (before round 1 starts)
 
-## Reuse (existing code)
+Wait for: (a) LB score of fold-0/v1.1 submission, (b) v1.3 retrain OOF delta. These
+set the baseline label set (winner of v1.1-vs-v1.3) and give the CV↔LB correlation
+anchor. Round 1 teacher = that winner's checkpoint.
 
-- `src/rsna_knee/constants.py` — `TARGET_LABELS`, `STUDY_ID_COLUMN` (key off these; `Baker's` has an apostrophe)
-- `src/rsna_knee/metrics.py` — `binary_roc_auc` (raises ValueError on single-class → catch per label, report None), `macro_auc`
-- `src/rsna_knee/tracker.py` — `append_run` (keyword-only)
-- `src/rsna_knee/cli.py` — argparse subcommand pattern; extend, don't restructure
-- train.csv has embedded newlines in reports — always read with pandas
+## Reuse
 
-## New modules
+- `src/rsna_knee/imaging/train.py` — teacher/student training (unchanged; students
+  train fresh from scratch per memo §3)
+- `src/rsna_knee/metrics.py` — `binary_roc_auc` for all gating math
+- `src/rsna_knee/tracker.py` — every round logged as runs
+- `artifacts/fold0/oof_fold0.csv` format — OOF comparison basis
+- Kernel templates `kaggle_kernel/` (train, T4-flagged push) and `kaggle_kernel_infer/`
+- M4 + `data/cache224/` (308 studies) — cheap collapse-triage before GPU spend
 
-```
-src/rsna_knee/extraction/
-    types.py          # LabelEvidence(score,status,evidence), ExtractionResult, Extractor protocol
-    language.py       # script check (Cyrillic/Greek/Thai) + Latin stopword vote (en,es,tr,it,pt,de,fr,hr,nl); unk → union matching
-    sections.py       # technique/findings/impression splitter; technique+clinical-question text EXCLUDED from matching
-    lexicon.py        # Term entries {label,lang,pattern,weight} ~150 total; NEGATION_CUES + UNCERTAINTY_CUES per language; NFKD accent-normalized matching
-    rules_engine.py   # Engine A
-    llm_engine.py     # Engine B: anthropic SDK, claude-haiku-4-5, strict JSON schema (status enum per label), cache data/llm_cache/<uid>.json with prompt_version, live + Batches modes, cost estimate + --yes gate
-    merge.py          # LLM wins when non-error; disagreements → data/extraction_audit.csv; provenance column
-    io.py             # read train.csv, gold-58 mask, write pseudo_labels.csv
-src/rsna_knee/cli.py  # + extract-labels, eval-extraction
-tests/test_extraction_{language,rules,llm,merge,cli}.py
-```
+## New module: `src/rsna_knee/selftrain/`
 
-## Key design decisions
+1. **`gold_split.py`** — deterministic split of gold-58 into `working40` /
+   `locked18`, stratified by per-label positive counts, seed pre-committed (2026).
+   Locked slice enforced by code: any evaluation call naming locked studies raises
+   unless `--final-unlock` flag passed. Split written once to
+   `data/gold_split_v1.json`, committed, never regenerated.
+2. **`referee.py`** — the gate:
+   - `cv_gate(oof_prev, oof_new)`: primary accept/reject. Per-label AUC deltas on
+     the ~877-study fold OOF + macro delta; accept iff macro delta ≥ +0.003 AND no
+     label degrades by > 0.01 (floors pre-committed here as constants).
+   - `gold_check(preds, every_n=2)`: stratified bootstrap (3,000 draws) of AUC delta
+     on working-40; directional signal only if >90% draws agree AND |delta| ≥ 0.02.
+     Runs every 2nd round; result is advisory (logged, can veto only on strong
+     negative), never a per-round approve.
+   - `final_check()`: single use of locked-18 at campaign end.
+3. **`corrections.py`** — per-label pseudo-label correction:
+   - cleanlab `multilabel_classification` one-vs-rest Confident Learning over
+     teacher OOF probabilities vs current label set → candidate flags with
+     auto-derived per-class thresholds.
+   - Low-count-label backoff: for labels with <10 gold-working positives (Fracture,
+     MCL), thresholds pooled with CV-estimated per-label AUC weights (from
+     `label_weights.json`) instead of raw empirical precision.
+   - Per-label correction caps: accepted corrections limited so post-correction
+     prevalence stays within a band around current prevalence; band width scales
+     with measured label AUC (0.65-AUC labels get the tightest cap).
+   - Correlated-pair co-drift log: ACL↔Contusion, MedMen↔MedOA, LatMen↔LatOA joint
+     correction counts vs baseline co-occurrence; over-threshold → flagged for
+     TABOOST manual review, round pauses on that label pair.
+4. **`round_runner.py`** — CLI orchestrating one round locally (steps 2–4, 6–7 of
+   memo): reads teacher OOF, produces corrected label CSV `labels_r{N}.csv` +
+   correction report, runs M4 triage (student forward pass sanity on cache224),
+   emits the Kaggle dataset payload for the student train. GPU training itself
+   stays on Kaggle via existing kernel with `--labels-csv labels_rN`.
 
-- **Both engines emit statuses** (affirmed/negated/uncertain/not_mentioned) mapped through one
-  `SCORE_MAP = {affirmed:0.90 (0.95 if in impression), uncertain:0.60, not_mentioned:0.35, negated:0.05}`
-  — AUC is rank-based, so bin ordering matters more than calibration; constants exposed for gold-58 sweeps.
-- **Sentence-scope negation** (not fixed windows): Turkish negation is suffixal at sentence
-  end (`saptanmadı`, `izlenmedi`, `normaldir`); Romance negation is post-posed
-  (`sin evidencia de`, `de morfología conservada`). Impression overrides findings on conflict.
-- **Normalcy assertions count as negation** ("menisküsler normaldir", "intact", "conservado").
-- **Ambiguity rules encoded identically in lexicon and LLM prompt**: chondral terms map to
-  compartment OA by location keyword; marrow edema → Contusion only in traumatic context;
-  AVN is no label — keeps engine disagreements meaningful.
-- **LLM cost**: ~$10 live / ~$5 via Message Batches API for all 4,407 (Haiku); gold-58 smoke ≈ $0.15.
-  Resumable via cache; refusal/parse failure → error sentinel + rules fallback for that study.
-- Add `anthropic>=0.60` to pyproject (only new dependency; no spaCy/langdetect).
+## Round structure (per memo §5, mapped)
 
-## Implementation sequence
+1. Teacher = current best checkpoint (starts: v1.1/v1.3 winner).
+2. Teacher OOF predictions on all 4,407 → already produced by train kernels
+   (extend train.py output to full-corpus predictions in the same run — small patch:
+   after best epoch, run inference over the training folds too; costs ~30 min GPU).
+3–4. `corrections.py` → `labels_r1.csv` + caps + co-drift log.
+5. Student kernel trains fresh on `labels_r1.csv` (same fold-0 split, same config).
+6. M4 triage on cache224 before pushing (obvious-collapse check only).
+7. `referee.cv_gate` on OOF; `gold_check` every 2nd round.
+8. Stop: HARD DEFAULT 3 rounds max. Early stop if cv_gate rejects. Rollback = keep
+   prior label set + checkpoint. After stop: `final_check()` on locked-18, once.
 
-1. `types.py` + `language.py` + `sections.py` + their tests → pytest green.
-2. `lexicon.py` seeded for en/es/tr → `rules_engine.py` + tests (positive/negated/not-mentioned × 3 languages, section-weighting, technique-exclusion cases).
-3. `io.py` + `merge.py` + CLI wiring → run rules engine on real gold-58 → `eval-extraction` → first tracked baseline (`model=rules-v0`, split=gold58).
-4. Expand lexicon to remaining languages guided by per-language coverage stats + false-negative audit; sweep SCORE_MAP not_mentioned ∈ {0.25,0.35,0.45} on gold-58.
-5. `llm_engine.py` + mocked tests → live smoke on gold-58 (~$0.15) → compare per-label vs rules.
-6. If LLM ≥ rules: full batch run (~$5, needs ANTHROPIC_API_KEY + explicit --yes), merge → `data/pseudo_labels.csv` for all 4,407 + `extraction_audit.csv`; final tracked eval (`model=merged-v1`).
+## Pre-committed constants (written into referee.py, not tuned after peeking)
+
+- cv_gate: macro ≥ +0.003, per-label degradation floor 0.01
+- gold_check: 3,000 bootstrap draws, 90% direction, 0.02 effect floor, every 2 rounds
+- Max 3 rounds; rollback on first rejection
+- Gold split seed 2026, 40/18 stratified
+
+## Dependencies
+
+- Add `cleanlab>=2.6` to pyproject (main deps — CPU-only, used locally).
 
 ## Verification
 
-- `uv run pytest` green at each step (5 new test files, no network — LLM client mocked).
-- `uv run python -m rsna_knee.cli extract-labels --engine rules --only-gold` then
-  `eval-extraction` prints per-label accuracy/F1/AUC table and appends a tracker row —
-  the gold-58 macro-AUC is the acceptance number for ISA ISC-31.
-- Sanity summaries printed at extraction: per-language counts, per-label status
-  distribution, count of empty/truncated reports.
-- Audit CSV spot-review of 20 disagreement rows before accepting merged labels.
+- Unit tests: gold split determinism + locked-slice enforcement; cv_gate accept and
+  reject cases on synthetic OOFs; bootstrap gold_check direction logic; correction
+  caps respected on synthetic flags; co-drift flag fires on injected correlated flip.
+- Dry run: round 0 "identity round" — run corrections with caps=0 (no changes
+  accepted) end-to-end to validate plumbing before any real round.
+- Every round appends to `runs.csv` with per-label AUCs; correction reports
+  committed under `artifacts/selftrain/`.
 
-## Risks (accepted for v0)
+## Resolved decisions
 
-Gold-58 is tiny/high-variance (report F1+accuracy alongside AUC; only tune 4 constants
-against it); multi-clause Turkish sentences may mis-negate (LLM covers); truncated
-reports honestly emit 0.35 flat and get counted; cache `prompt_version` must bump on any
-prompt/schema edit.
+- TABOOST 2026-08-16: **single-model rounds** — two rounds fit this week's quota;
+  escalate to two-model agreement only if round-1 correction reports look suspicious
+  on Effusion/Synovitis.

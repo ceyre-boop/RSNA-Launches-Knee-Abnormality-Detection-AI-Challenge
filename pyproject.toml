@@ -12,6 +12,7 @@ dependencies = [
     "opencv-python-headless>=4.9",
     "kaggle>=1.6",
     "anthropic>=0.60",
+    "cleanlab>=2.6",
 ]
 
 [project.optional-dependencies]
