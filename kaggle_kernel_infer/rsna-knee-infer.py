@@ -18,12 +18,16 @@ for whl in glob.glob(f"{wsrc}/*.whl"):
     fixed = base.replace("2.5.1cu121", "2.5.1+cu121").replace("0.20.1cu121", "0.20.1+cu121")
     shutil.copy(whl, f"{wtmp}/{fixed}")
 print("wheels staged:", len(os.listdir(wtmp)))
-pkgs = ["nvidia-cuda-nvrtc-cu12", "nvidia-cuda-runtime-cu12", "nvidia-cuda-cupti-cu12",
-        "nvidia-cudnn-cu12", "nvidia-cublas-cu12", "nvidia-cufft-cu12", "nvidia-curand-cu12",
-        "nvidia-cusolver-cu12", "nvidia-cusparse-cu12", "nvidia-nccl-cu12", "nvidia-nvtx-cu12",
-        "nvidia-nvjitlink-cu12", "triton", "torch", "torchvision", "timm"]
+pkgs = ["nvidia-cuda-nvrtc-cu12==12.1.105", "nvidia-cuda-runtime-cu12==12.1.105",
+        "nvidia-cuda-cupti-cu12==12.1.105", "nvidia-cudnn-cu12==9.1.0.70",
+        "nvidia-cublas-cu12==12.1.3.1", "nvidia-cufft-cu12==11.0.2.54",
+        "nvidia-curand-cu12==10.3.2.106", "nvidia-cusolver-cu12==11.4.5.107",
+        "nvidia-cusparse-cu12==12.1.0.106", "nvidia-nccl-cu12==2.21.5",
+        "nvidia-nvtx-cu12==12.1.105", "nvidia-nvjitlink-cu12==12.1.105",
+        "triton==3.1.0", "torch==2.5.1+cu121", "torchvision==0.20.1+cu121", "timm==1.0.28"]
+# Pins force pip to actually install our wheels over Kaggle's newer preinstalls
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-index", "--no-deps",
-                f"--find-links={wtmp}", *pkgs], check=True)
+                "--force-reinstall", f"--find-links={wtmp}", *pkgs], check=True)
 # Sanity gate: fail loudly if GPU ops are broken (never emit an all-0.5 submission silently)
 import torch as _t
 assert _t.cuda.is_available() and ( _t.ones(2, device="cuda") * 2 ).sum().item() == 4.0, "GPU op check failed"
