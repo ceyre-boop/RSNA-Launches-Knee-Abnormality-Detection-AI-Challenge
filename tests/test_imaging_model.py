@@ -116,3 +116,43 @@ class TestModelForward:
         assert not any(p.requires_grad for p in blocks[0].parameters())
         assert all(p.requires_grad for p in blocks[-1].parameters())
         assert all(p.requires_grad for p in model.head.parameters())
+
+
+class TestCnnBackbone:
+    BACKBONE = "efficientnet_b3"
+
+    def _build(self, **kwargs):
+        pytest.importorskip("timm")
+        from rsna_knee.imaging.model import KneeSlotModel
+
+        return KneeSlotModel(backbone=self.BACKBONE, pretrained=False, img_size=224, **kwargs)
+
+    def test_forward_with_cnn_backbone(self) -> None:
+        model = self._build(unfrozen_blocks=2).eval()
+        assert model.is_token_backbone is False
+        with torch.no_grad():
+            logits = model(
+                torch.rand(1, 6, 3, 224, 224),
+                torch.tensor([[1.0, 1.0, 1.0, 1.0, 0.0, 0.0]]),
+            )
+        assert logits.shape == (1, len(TARGET_LABELS))
+        assert torch.isfinite(logits).all()
+
+    def test_cnn_freezing_unfreezes_last_stages(self) -> None:
+        model = self._build(unfrozen_blocks=2)
+        stages = list(model.backbone.blocks)
+        assert not any(p.requires_grad for p in stages[0].parameters())
+        assert all(p.requires_grad for p in stages[-1].parameters())
+
+    def test_cnn_parameter_groups_split_lrs(self) -> None:
+        from rsna_knee.imaging.model import parameter_groups
+
+        model = self._build(unfrozen_blocks=2)
+        groups = parameter_groups(model, backbone_lr=1e-5, head_lr=1e-3)
+        assert [g["lr"] for g in groups] == [1e-5, 1e-3]
+        head_ids = {id(p) for p in groups[1]["params"]}
+        backbone_ids = {id(p) for p in groups[0]["params"]}
+        assert head_ids.isdisjoint(backbone_ids)
+        # The CNN projection layer must be trained at the head learning rate.
+        assert all(id(p) in head_ids for p in model.slot_proj.parameters())
+        assert all(g["params"] for g in groups)
