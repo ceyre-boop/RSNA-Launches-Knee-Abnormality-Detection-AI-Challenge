@@ -1,4 +1,4 @@
-# RSNA Knee — offline inference/submission kernel (fold-0 single model, sliding-window TTA).
+# RSNA Knee — offline inference/submission kernel (5-fold rank-aggregated ensemble, sliding-window TTA).
 # Internet OFF. Deps installed from the wheels dataset; weights from same dataset.
 # Robustness contract: every test study gets a row; any failure -> 0.5 defaults.
 import subprocess, sys, os, pathlib, time
@@ -35,7 +35,8 @@ assert _t.cuda.is_available() and ( _t.ones(2, device="cuda") * 2 ).sum().item()
 ASSETS = str(find("pseudo_labels_sonnet_v1_3.csv").parent)
 sys.path.insert(0, ASSETS)
 COMP = str(find("test_series.csv").parent)
-CKPT = str(find("fold0_best.pt"))
+FOLDS = [0, 1, 2, 3, 4]
+CKPTS = [str(find(f"fold{f}_best.pt")) for f in FOLDS]
 
 import numpy as np, pandas as pd, torch
 from rsna_knee.constants import TARGET_LABELS, STUDY_ID_COLUMN
@@ -44,17 +45,25 @@ from rsna_knee.imaging.volume import load_series_volume
 from rsna_knee.imaging.model import KneeSlotModel
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-ckpt = torch.load(CKPT, map_location=device, weights_only=False)
-model = KneeSlotModel(backbone=ckpt["args"].get("backbone", "vit_small_patch14_dinov2"),
+# Build all folds once and keep them resident (~90MB each — comfortable on a T4).
+models, img_sizes = [], []
+for f, path in zip(FOLDS, CKPTS):
+    ck = torch.load(path, map_location=device, weights_only=False)
+    m = KneeSlotModel(backbone=ck["args"].get("backbone", "vit_small_patch14_dinov2"),
                       pretrained=False)
-model.load_state_dict(ckpt["model"])
-model.to(device).eval()
-print(f"model loaded (epoch {ckpt['epoch']}, val macro {ckpt['macro_auc']:.4f}) on {device}")
+    m.load_state_dict(ck["model"])
+    m.to(device).eval()
+    models.append(m)
+    img_sizes.append(int(ck["args"].get("img_size", 224)))
+    print(f"fold{f} loaded (epoch {ck['epoch']}, val macro {ck['macro_auc']:.4f}) on {device}", flush=True)
+    del ck
+assert len(set(img_sizes)) == 1, f"folds disagree on img_size: {img_sizes}"
+N_MODELS = len(models)
 
 test = pd.read_csv(f"{COMP}/test.csv")
 series = pd.read_csv(f"{COMP}/test_series.csv")
 slot_table = build_slot_table(series)
-IMG = int(ckpt["args"].get("img_size", 224))
+IMG = img_sizes[0]
 GROUP = 3
 
 # ---- Sliding-window TTA with per-target pooling (round-2 intel item 1) ----
@@ -114,11 +123,14 @@ def pool_windows(probs):
     return out
 
 
-rows = []
+uids = []
+# per_model[k] -> list of [T] prob vectors, one per study, aligned with uids
+per_model = [[] for _ in range(N_MODELS)]
 done = 0
 win_counts = []
 for uid in test[STUDY_ID_COLUMN]:
-    scores = {label: 0.5 for label in TARGET_LABELS}
+    # Failure contract: 0.5 for every target on every model (ranks mid-pack naturally).
+    pooled_by_model = [np.full(len(TARGET_LABELS), 0.5, dtype=np.float64) for _ in range(N_MODELS)]
     try:
         srow = slot_table[slot_table[STUDY_ID_COLUMN] == uid]
         plane_of = dict(zip(series.SeriesInstanceUID, series.Anatomical_Plane))
@@ -146,25 +158,51 @@ for uid in test[STUDY_ID_COLUMN]:
                     slots.append(torch.from_numpy(vol[idx].astype(np.float32)))
                 stacks.append(torch.stack(slots))
             m = torch.tensor([mask]).to(device)
-            probs = []
+            # The decoded volumes and TTA window stacks are built once and reused
+            # across every fold — only the forward passes are repeated.
+            batches = []
             for i in range(0, W, CHUNK):
                 xb = torch.stack(stacks[i:i + CHUNK]).to(device)
-                mb = m.expand(xb.shape[0], -1)
-                with torch.no_grad():
-                    logits = model(xb, mb)
-                probs.append(torch.sigmoid(logits).float().cpu().numpy())
-            probs = np.concatenate(probs, axis=0)  # [W, T]
-            pooled = pool_windows(probs)
-            scores = {label: float(p) for label, p in zip(TARGET_LABELS, pooled)}
+                batches.append((xb, m.expand(xb.shape[0], -1)))
+            for k, model in enumerate(models):
+                probs = []
+                for xb, mb in batches:
+                    with torch.no_grad():
+                        logits = model(xb, mb)
+                    probs.append(torch.sigmoid(logits).float().cpu().numpy())
+                probs = np.concatenate(probs, axis=0)  # [W, T]
+                pooled_by_model[k] = pool_windows(probs)
+            del batches
     except Exception as e:
         print(f"WARN {uid}: {type(e).__name__}: {e}")
-    rows.append({STUDY_ID_COLUMN: uid, **scores})
+    uids.append(uid)
+    for k in range(N_MODELS):
+        per_model[k].append(pooled_by_model[k])
     done += 1
-    if done % 50 == 0:
+    if done % 25 == 0:
         mw = float(np.mean(win_counts)) if win_counts else 0.0
         print(f"{done}/{len(test)} elapsed={time.time()-T0:.0f}s mean_windows={mw:.1f}", flush=True)
 
-sub = pd.DataFrame(rows, columns=[STUDY_ID_COLUMN, *TARGET_LABELS])
+# ---- Fold-rank aggregation ----
+# Folds are trained on different splits, so their probability scales are not
+# directly comparable; per-target percentile rank puts every fold on the same
+# [0, 1] scale before an equal-weight mean. AUC only cares about ordering.
+n = len(uids)
+stack = np.stack([np.stack(p, axis=0) for p in per_model], axis=0)  # [K, N, T]
+if n > 1:
+    ranks = np.empty_like(stack)
+    for k in range(N_MODELS):
+        for j in range(len(TARGET_LABELS)):
+            r = pd.Series(stack[k, :, j]).rank(method="average").to_numpy()
+            ranks[k, :, j] = (r - 1.0) / (n - 1.0)
+    final = ranks.mean(axis=0)  # [N, T]
+else:
+    # Degenerate: a single study has no ordering to rank — fall back to raw mean.
+    final = stack.mean(axis=0)
+
+sub = pd.DataFrame(final, columns=list(TARGET_LABELS))
+sub.insert(0, STUDY_ID_COLUMN, uids)
+sub = sub[[STUDY_ID_COLUMN, *TARGET_LABELS]]
 sub.to_csv("/kaggle/working/submission.csv", index=False)
-print(f"submission.csv: {len(sub)} rows, {time.time()-T0:.0f}s total, "
+print(f"submission.csv: {len(sub)} rows, {N_MODELS} folds rank-averaged, {time.time()-T0:.0f}s total, "
       f"mean_windows={float(np.mean(win_counts)) if win_counts else 0.0:.2f}")
