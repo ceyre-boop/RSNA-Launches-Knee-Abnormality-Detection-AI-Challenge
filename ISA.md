@@ -315,6 +315,20 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
   fix (Effusion) was already in baseline v1.1. No retrain; axis exhausted; GPU-hour
   saved. Ports>labels evidence further hardened. Next: non-DINO arm (CNN backbone
   support in build).
+- 2026-08-17: **AlphaZero round 1 REJECTED by cv_gate.** Kernel-reported
+  macro_auc=0.922 was circular (scored against round-1 CORRECTED labels, which
+  were partly derived from this same teacher's own predictions -- up to 209 label
+  flips/target). Honest re-score of the round-1 student's predictions against the
+  FIXED v1.1 truth (same reference as the 0.804 baseline): macro 0.804 -> 0.789
+  (-0.015), trusted-only 0.801 -> 0.792 (-0.009). Baker's -0.059, Synovitis -0.040,
+  Medial Meniscus -0.012 all breached the 0.01 degradation floor. cv_gate REJECT.
+  Rollback: keep v1.1 labels + existing 5-fold ensemble checkpoint (current best,
+  LB 0.868). Root cause suspect: empirical/pooled_backoff correction thresholds
+  too permissive on report-gap labels (PF OA/Effusion/Baker's/Synovitis took the
+  largest correction caps in round 1 -- see artifacts/selftrain/round1/). Next:
+  either tighten caps materially before round 2, or treat corrections.py's current
+  thresholding as unfit for the report-gap label group and hold self-training to
+  trusted labels only.
 - 2026-08-17: **Bug fixed pre-round-1**: artifacts/fold0/label_weights.json was
   stale (Effusion 0.369, Synovitis 0.427, Baker's 1.000 -- did not match the real
   fold0-dinov2-v1.1labels OOF run in runs.csv). Regenerated from the validated OOF
