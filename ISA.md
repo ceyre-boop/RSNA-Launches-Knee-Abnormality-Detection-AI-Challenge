@@ -295,6 +295,12 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
   679 accepted post-caps, 14 gold protected, LatMen<->LatOA pair auto-PAUSED at 2.08x
   joint drift, LatMen+LatOA corrections fully capped. Rails demonstrably fire on real
   data. Artifacts: artifacts/selftrain/shadow0/.
+- 2026-08-17: Measurement caveat (critic-flagged): fold-1+ OOF numbers measure
+  bbox-crop AND fold jointly (crop baked into cache) — never report an isolated crop
+  contribution. v1.3-loaded-in-sub#2 verified via checkpoint val stamp 0.8055 in
+  kernel log (v1.1 stamp is 0.8039) — sub #2 result fully explained.
+- 2026-08-17: Speed plan post-cache: decode bottleneck eliminated; remaining lever is
+  2x GPU session concurrency — launch folds as pairs (~2h wall for folds 1-4).
 - 2026-08-13: BLOCKED on principal for: (a) Kaggle API token at `~/.kaggle/kaggle.json`,
   (b) accepting competition rules on the Kaggle website (cannot be done via CLI).
 
