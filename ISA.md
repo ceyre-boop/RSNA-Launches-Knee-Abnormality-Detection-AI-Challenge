@@ -315,6 +315,13 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
   fix (Effusion) was already in baseline v1.1. No retrain; axis exhausted; GPU-hour
   saved. Ports>labels evidence further hardened. Next: non-DINO arm (CNN backbone
   support in build).
+- 2026-08-17: **Bug fixed pre-round-1**: artifacts/fold0/label_weights.json was
+  stale (Effusion 0.369, Synovitis 0.427, Baker's 1.000 -- did not match the real
+  fold0-dinov2-v1.1labels OOF run in runs.csv). Regenerated from the validated OOF
+  AUCs. This file feeds prevalence_band width and pooled_backoff thresholds in
+  corrections.py -- would have mis-calibrated round-1 correction caps on
+  Effusion/Synovitis/Baker's/MCL/Lateral OA had it gone uncaught. Identity dry-run
+  (round 0, max-corrections=0) re-verified clean after the fix.
 - 2026-08-17: **Non-DINO arm REJECTED.** B3 (14ep, lr1e-4, our data) solo OOF 0.727
   vs DINOv2 0.804 — undertrained relative to intel's tuned reference. Rank-blend at
   intel alpha table on fold-0 OOF: 0.804 -> 0.801 (WORSE). Confirms the adoption
