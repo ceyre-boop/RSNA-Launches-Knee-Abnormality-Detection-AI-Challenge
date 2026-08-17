@@ -315,6 +315,11 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
   fix (Effusion) was already in baseline v1.1. No retrain; axis exhausted; GPU-hour
   saved. Ports>labels evidence further hardened. Next: non-DINO arm (CNN backbone
   support in build).
+- 2026-08-17: **Non-DINO arm REJECTED.** B3 (14ep, lr1e-4, our data) solo OOF 0.727
+  vs DINOv2 0.804 — undertrained relative to intel's tuned reference. Rank-blend at
+  intel alpha table on fold-0 OOF: 0.804 -> 0.801 (WORSE). Confirms the adoption
+  caveat: their weights don't transfer to our pipeline. NOT submitting. No GPU spent
+  beyond the 1h training run. Item struck from queue; AlphaZero round 1 now next.
 - 2026-08-13: BLOCKED on principal for: (a) Kaggle API token at `~/.kaggle/kaggle.json`,
   (b) accepting competition rules on the Kaggle website (cannot be done via CLI).
 
