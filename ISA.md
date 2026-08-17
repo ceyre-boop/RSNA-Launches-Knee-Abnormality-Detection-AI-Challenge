@@ -308,6 +308,13 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
   -0.003 on the board. Next experiment after folds land: GRADED-THRESHOLD SWEEP on the
   v1.3 severity columns (cheap, direct-evidence hypothesis) — BEFORE any AlphaZero
   round. Loop discounted further; runs only if sweep+folds leave headroom.
+- 2026-08-17 (am): **Threshold sweep CLOSED the severity axis.** CPU sweep over grade
+  bars: Effusion/MedMen/PF OA differ by 0-7 studies between bars (prior audits already
+  excluded mild cases); OA compartments ~130 studies with mild OOF preference for the
+  stricter bar = exactly v1.3, which LB scored at -0.003. The one profitable severity
+  fix (Effusion) was already in baseline v1.1. No retrain; axis exhausted; GPU-hour
+  saved. Ports>labels evidence further hardened. Next: non-DINO arm (CNN backbone
+  support in build).
 - 2026-08-13: BLOCKED on principal for: (a) Kaggle API token at `~/.kaggle/kaggle.json`,
   (b) accepting competition rules on the Kaggle website (cannot be done via CLI).
 
