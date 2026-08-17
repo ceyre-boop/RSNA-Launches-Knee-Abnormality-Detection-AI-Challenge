@@ -35,7 +35,7 @@ assert _t.cuda.is_available() and ( _t.ones(2, device="cuda") * 2 ).sum().item()
 ASSETS = str(find("pseudo_labels_sonnet_v1_3.csv").parent)
 sys.path.insert(0, ASSETS)
 COMP = str(find("test_series.csv").parent)
-CKPT = str(find("fold0_best.pt"))
+CKPT = str(find("fold0_best_v13.pt"))
 
 import numpy as np, pandas as pd, torch
 from rsna_knee.constants import TARGET_LABELS, STUDY_ID_COLUMN
