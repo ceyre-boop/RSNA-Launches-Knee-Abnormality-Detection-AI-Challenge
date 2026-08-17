@@ -301,6 +301,13 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
   kernel log (v1.1 stamp is 0.8039) — sub #2 result fully explained.
 - 2026-08-17: Speed plan post-cache: decode bottleneck eliminated; remaining lever is
   2x GPU session concurrency — launch folds as pairs (~2h wall for folds 1-4).
+- 2026-08-17: **Pre-registered ensemble expectation:** folds share arch/labels/crop/
+  seed lineage — weakest diversity axis. Expect 0.86-0.87; +0.005 is normal, not
+  failure. Fold-1 0.813 = crop+schedule+fold-variance jointly (never cite as crop).
+- 2026-08-17: **Evidence-ranked priorities:** ports gave +0.018 today; label work gave
+  -0.003 on the board. Next experiment after folds land: GRADED-THRESHOLD SWEEP on the
+  v1.3 severity columns (cheap, direct-evidence hypothesis) — BEFORE any AlphaZero
+  round. Loop discounted further; runs only if sweep+folds leave headroom.
 - 2026-08-13: BLOCKED on principal for: (a) Kaggle API token at `~/.kaggle/kaggle.json`,
   (b) accepting competition rules on the Kaggle website (cannot be done via CLI).
 
