@@ -5,7 +5,7 @@
 #
 # CONFIG: env vars do NOT survive `kaggle kernels push`, so the pusher seds these.
 FOLD = 1
-LABELS = "v1_3"
+LABELS = "v1_1"
 # ---------------------------------------------------------------------------
 import subprocess, sys, os, json, pathlib
 
