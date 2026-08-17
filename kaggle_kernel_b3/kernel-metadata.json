@@ -1,0 +1,17 @@
+{
+  "id": "colineyre/rsna-knee-b3arm",
+  "title": "rsna-knee-b3arm",
+  "code_file": "train-fold.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": ["colineyre/rsna-knee-taboost-assets"],
+  "competition_sources": ["rsna-knee-abnormality-detection"],
+  "kernel_sources": [
+    "colineyre/rsna-knee-fullcache-s0",
+    "colineyre/rsna-knee-fullcache-s1",
+    "colineyre/rsna-knee-fullcache-s2"
+  ]
+}
