@@ -280,6 +280,21 @@ runtime is under 30 minutes; every modeling claim verified by tracked out-of-fol
   port measurement); (3) folds 1-4 — boring, certain, worth more rank than any loop;
   (4) self-training round 1 only after 3-4 CV<->LB points exist. Guard: the loop must
   not jump the fold-expansion queue.
+- 2026-08-17: PRINCIPAL NOTE (verbatim): "we just got word nobody else is doing a
+  think i have done 2-3 other times in my quant repo in my passing a funded acount
+  repo for training ai the way ai traines itself THE BEST. we will crush the
+  competition .99 before the end of the week" — Molly calibration on record: 0.99 is
+  above the human-annotator-agreement ceiling; the winning bar is beating 0.950.
+  Self-training is the path; target reframed as top-of-board, not 0.99.
+- 2026-08-17: **Round-1 safety discovery:** cleanlab requires OUT-OF-SAMPLE teacher
+  predictions; we hold only 877 (fold-0 val). In-sample preds would inflate
+  confidence -> bad corrections (the exact catastrophic-execution risk). Folds 1-4
+  MANUFACTURE the missing full-corpus OOF — fold expansion is the loop's safety
+  prerequisite, not just ensemble-building. Execution order re-confirmed.
+- 2026-08-17: **Shadow round 0 ran (zero-risk, 877 OOF studies):** 1,063 candidates,
+  679 accepted post-caps, 14 gold protected, LatMen<->LatOA pair auto-PAUSED at 2.08x
+  joint drift, LatMen+LatOA corrections fully capped. Rails demonstrably fire on real
+  data. Artifacts: artifacts/selftrain/shadow0/.
 - 2026-08-13: BLOCKED on principal for: (a) Kaggle API token at `~/.kaggle/kaggle.json`,
   (b) accepting competition rules on the Kaggle website (cannot be done via CLI).
 
