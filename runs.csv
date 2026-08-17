@@ -8,3 +8,4 @@ fold0-dinov2-v1.1labels,2026-08-16T08:00:53.223396+00:00,fold0-oof,dinov2s-slot-
 LB-1-fold0-v11,2026-08-16T19:34:18.873580+00:00,public-lb,dinov2s-slot-attn-fold0,0.80400000,0.84000000,,0.00,,"FIRST LB SCORE. CV 0.804 -> LB 0.840 (+0.036, gold-58 enrichment + pseudo-label noise in CV)"
 LB-2-fold0-v13,2026-08-17T01:19:34.323602+00:00,public-lb,dinov2s-slot-attn-fold0-v13,0.80550000,0.83700000,,0.00,,referee REJECT corroborated by LB (-0.003 vs v1.1); CV->LB offset stable ~+0.03; v1.1 = baseline
 LB-3-tta,2026-08-17T04:32:53.843311+00:00,public-lb,fold0-v11+tta-pooling,0.80400000,0.85800000,,0.00,,"TTA isolated port: +0.018 LB (0.840->0.858), above intel prediction"
+LB-4-ensemble,2026-08-17T11:18:36.614424+00:00,public-lb,5fold-rank-tta-ensemble,0.81300000,0.86800000,,0.00,,PRE-REG HIT (0.86-0.87 window): +0.010 over TTA single. 4th CV<->LB point.
