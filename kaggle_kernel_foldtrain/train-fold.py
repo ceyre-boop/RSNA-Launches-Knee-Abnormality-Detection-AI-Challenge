@@ -5,7 +5,7 @@
 #
 # CONFIG: env vars do NOT survive `kaggle kernels push`, so the pusher seds these.
 FOLD = 0
-LABELS = "r1"
+LABELS = "r1_trusted"
 # ---------------------------------------------------------------------------
 import subprocess, sys, os, json, pathlib
 
@@ -21,7 +21,9 @@ print("torch", torch.__version__, "| gpu", torch.cuda.get_device_name(0),
 x = (torch.ones(4, device="cuda") * 2).sum().item()
 print("gpu_op_ok", x == 8.0)
 
-LABELS_CSV_NAME = "labels_r1.csv" if LABELS == "r1" else f"pseudo_labels_sonnet_{LABELS}.csv"
+LABELS_CSV_NAME = {"r1": "labels_r1.csv", "r1_trusted": "labels_r1_trusted.csv"}.get(
+    LABELS, f"pseudo_labels_sonnet_{LABELS}.csv"
+)
 print(f"CONFIG: FOLD={FOLD} LABELS={LABELS} -> {LABELS_CSV_NAME}")
 
 # ---- Resolve mounts defensively ----
